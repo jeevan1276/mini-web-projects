@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eisenhower Matrix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0F1115;
+    --panel: #171A21;
+    --panel-hover: #1D212B;
+    --grid-line: #2A2E38;
+    --text: #E8E9ED;
+    --text-dim: #8B90A0;
+    --do: #FF6B4A;
+    --schedule: #4ADE80;
+    --delegate: #60A5FA;
+    --delete: #9CA3AF;
+    --inbox: #C9A6FF;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 32px 24px 80px;
+  }
+
+  header {
+    max-width: 1300px;
+    margin: 0 auto 28px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin: 0;
+  }
+
+  h1 span { color: var(--text-dim); font-weight: 400; }
+
+  .subtitle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* ---- Overall layout: inbox on the left, graph on the right ---- */
+  .layout {
+    max-width: 1300px;
+    margin: 0 auto;
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+
+  /* ---- Inbox (left column) ---- */
+  .inbox {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border: 2px solid var(--grid-line);
+    border-radius: 6px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 560px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .inbox.drag-over {
+    background: var(--panel-hover);
+    border-color: var(--inbox);
+  }
+
+  .inbox-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .inbox-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--inbox);
+  }
+
+  .inbox-desc {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  /* ---- The graph ---- */
+  .graph-wrap {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    padding: 36px 36px 44px 54px;
+  }
+
+  .axis-label {
+    position: absolute;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .axis-top    { top: 8px; left: 50%; transform: translateX(-50%); }
+  .axis-bottom { bottom: 8px; left: 50%; transform: translateX(-50%); }
+  .axis-left {
+    top: 50%; left: -4px;
+    transform: translateY(-50%) rotate(-90deg);
+    transform-origin: left center;
+  }
+  .axis-right {
+    top: 50%; right: -14px;
+    transform: translateY(-50%) rotate(-90deg);
+    transform-origin: right center;
+  }
+
+  .matrix {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+    background: var(--grid-line);
+    border: 2px solid var(--grid-line);
+    border-radius: 4px;
+    overflow: hidden;
+    min-height: 560px;
+  }
+
+  .quadrant {
+    background: var(--panel);
+    padding: 16px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    transition: background 0.15s ease;
+  }
+
+  .quadrant.drag-over { background: var(--panel-hover); }
+
+  .quadrant-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .quadrant-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .quadrant-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border: 1px solid currentColor;
+    opacity: 0.7;
+  }
+
+  #q-do .quadrant-title, #q-do .quadrant-tag { color: var(--do); }
+  #q-schedule .quadrant-title, #q-schedule .quadrant-tag { color: var(--schedule); }
+  #q-delegate .quadrant-title, #q-delegate .quadrant-tag { color: var(--delegate); }
+  #q-delete .quadrant-title, #q-delete .quadrant-tag { color: var(--delete); }
+
+  .quadrant-desc {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  /* ---- Shared task list + card styles ---- */
+  .task-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 40px;
+    padding-bottom: 4px;
+  }
+
+  .task {
+    background: #1F232D;
+    border: 1px solid var(--grid-line);
+    border-radius: 5px;
+    padding: 8px 10px;
+    font-size: 13.5px;
+    line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: grab;
+  }
+
+  .task:active { cursor: grabbing; }
+  .task.dragging { opacity: 0.35; }
+
+  .task-text {
+    word-break: break-word;
+    flex: 1;
+  }
+
+  .task-remove {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 0 2px;
+    flex-shrink: 0;
+  }
+  .task-remove:hover { color: var(--text); }
+
+  .add-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .add-row input {
+    flex: 1;
+    background: #0F1115;
+    border: 1px solid var(--grid-line);
+    border-radius: 4px;
+    padding: 7px 9px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    min-width: 0;
+  }
+
+  .add-row input:focus {
+    outline: none;
+    border-color: var(--text-dim);
+  }
+
+  .add-row button {
+    background: var(--grid-line);
+    border: none;
+    border-radius: 4px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 0 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .add-row button:hover { background: #3A3F4C; }
+
+  .empty-hint {
+    font-size: 11.5px;
+    color: #4B4F5A;
+    font-style: italic;
+    padding: 4px 2px;
+  }
+
+  footer {
+    max-width: 1300px;
+    margin: 24px auto 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #4B4F5A;
+    text-align: center;
+  }
+
+  @media (max-width: 900px) {
+    .layout { flex-direction: column; }
+    .inbox { width: 100%; min-height: 200px; }
+    .graph-wrap { width: 100%; padding: 28px 14px 34px 30px; }
+    .matrix { min-height: 640px; }
+    .axis-left, .axis-right { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Eisenhower Matrix <span>// add tasks, then drag them into place</span></h1>
+  <div class="subtitle" id="task-count">0 tasks</div>
+</header>
+
+<div class="layout">
+
+  <div class="inbox" data-quadrant="inbox">
+    <div class="inbox-head">
+      <span class="inbox-title">Inbox</span>
+    </div>
+    <div class="inbox-desc">All your tasks land here first. Drag each one into the matrix to sort it.</div>
+    <div class="task-list" id="list-inbox"></div>
+    <form class="add-row" data-quadrant="inbox">
+      <input type="text" placeholder="Add a task..." autofocus />
+      <button type="submit">Add</button>
+    </form>
+  </div>
+
+  <div class="graph-wrap">
+    <div class="axis-label axis-top">important</div>
+    <div class="axis-label axis-bottom">not important</div>
+    <div class="axis-label axis-left">urgent</div>
+    <div class="axis-label axis-right">not urgent</div>
+
+    <div class="matrix">
+      <div class="quadrant" id="q-do" data-quadrant="do">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Do</span>
+          <span class="quadrant-tag">urgent + important</span>
+        </div>
+        <div class="quadrant-desc">Handle now, yourself.</div>
+        <div class="task-list" id="list-do"></div>
+      </div>
+
+      <div class="quadrant" id="q-schedule" data-quadrant="schedule">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Schedule</span>
+          <span class="quadrant-tag">not urgent + important</span>
+        </div>
+        <div class="quadrant-desc">Block time for this. It matters most long-term.</div>
+        <div class="task-list" id="list-schedule"></div>
+      </div>
+
+      <div class="quadrant" id="q-delegate" data-quadrant="delegate">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Delegate</span>
+          <span class="quadrant-tag">urgent + not important</span>
+        </div>
+        <div class="quadrant-desc">Hand it off if you can.</div>
+        <div class="task-list" id="list-delegate"></div>
+      </div>
+
+      <div class="quadrant" id="q-delete" data-quadrant="delete">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Delete</span>
+          <span class="quadrant-tag">not urgent + not important</span>
+        </div>
+        <div class="quadrant-desc">Cut it. It's not worth your time.</div>
+        <div class="task-list" id="list-delete"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>saved automatically in this browser &middot; drag a task from the inbox into any quadrant, or between quadrants</footer>
+
+<script>
+  // ---- Data layer -----------------------------------------------------
+  // Tasks are stored as an array of { id, text, quadrant } objects,
+  // persisted to localStorage so they survive closing/reopening the file.
+  // quadrant is one of: 'inbox', 'do', 'schedule', 'delegate', 'delete'
+
+  const STORAGE_KEY = 'eisenhower-matrix-tasks';
+  const ZONES = ['inbox', 'do', 'schedule', 'delegate', 'delete'];
+
+  function loadTasks() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      console.error('Could not read saved tasks:', e);
+      return [];
+    }
+  }
+
+  function saveTasks(tasks) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  }
+
+  let tasks = loadTasks();
+
+  function addTask(text, quadrant) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    tasks.push({ id: crypto.randomUUID(), text: trimmed, quadrant });
+    saveTasks(tasks);
+    render();
+  }
+
+  function removeTask(id) {
+    tasks = tasks.filter(t => t.id !== id);
+    saveTasks(tasks);
+    render();
+  }
+
+  function moveTask(id, newQuadrant) {
+    const task = tasks.find(t => t.id === id);
+    if (task) {
+      task.quadrant = newQuadrant;
+      saveTasks(tasks);
+      render();
+    }
+  }
+
+  // ---- Rendering --------------------------------------------------------
+
+  function render() {
+    ZONES.forEach(zone => {
+      const list = document.getElementById('list-' + zone);
+      list.innerHTML = '';
+
+      const items = tasks.filter(t => t.quadrant === zone);
+
+      if (items.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'empty-hint';
+        hint.textContent = zone === 'inbox' ? 'No tasks yet. Add one below.' : 'Drop a task here.';
+        list.appendChild(hint);
+        return;
+      }
+
+      items.forEach(task => {
+        const card = document.createElement('div');
+        card.className = 'task';
+        card.draggable = true;
+        card.dataset.id = task.id;
+
+        const textEl = document.createElement('span');
+        textEl.className = 'task-text';
+        textEl.textContent = task.text;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'task-remove';
+        removeBtn.textContent = '\u00D7';
+        removeBtn.title = 'Delete task';
+        removeBtn.addEventListener('click', () => removeTask(task.id));
+
+        card.addEventListener('dragstart', () => {
+          card.classList.add('dragging');
+        });
+        card.addEventListener('dragend', () => {
+          card.classList.remove('dragging');
+        });
+
+        card.appendChild(textEl);
+        card.appendChild(removeBtn);
+        list.appendChild(card);
+      });
+    });
+
+    document.getElementById('task-count').textContent =
+      tasks.length + (tasks.length === 1 ? ' task' : ' tasks');
+  }
+
+  // ---- Drag and drop between zones (inbox + 4 quadrants) -----------------
+
+  document.querySelectorAll('[data-quadrant]').forEach(zone => {
+    // Only wire up drag events on containers that actually hold a task list
+    // (the inbox div and each quadrant div both qualify).
+    zone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      zone.classList.add('drag-over');
+    });
+
+    zone.addEventListener('dragleave', (e) => {
+      // Only clear the highlight when the pointer actually leaves this zone,
+      // not when it moves between child elements inside it.
+      if (!zone.contains(e.relatedTarget)) {
+        zone.classList.remove('drag-over');
+      }
+    });
+
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      const draggingCard = document.querySelector('.task.dragging');
+      if (draggingCard) {
+        moveTask(draggingCard.dataset.id, zone.dataset.quadrant);
+      }
+    });
+  });
+
+  // ---- Add-task form (inbox only) ----------------------------------------
+
+  document.querySelector('.add-row[data-quadrant="inbox"]').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = e.target.querySelector('input');
+    addTask(input.value, 'inbox');
+    input.value = '';
+    input.focus();
+  });
+
+  render();
+</script>
+
+</body>
+</html>
