@@ -221,7 +221,11 @@
   }
 
   .task:active { cursor: grabbing; }
-  .task.dragging { opacity: 0.35; }
+  .task.dragging {
+    opacity: 0.35;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    border: 2px solid var(--do);
+  }
 
   .task-text {
     word-break: break-word;
@@ -299,12 +303,15 @@
     .matrix { min-height: 640px; }
     .axis-left, .axis-right { display: none; }
   }
+  .priority-low { opacity: 0.7; }
+  .priority-medium { }
+  .priority-high { border-left: 4px solid #e74c3c; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Eisenhower Matrix <span>// add tasks, then drag them into place</span></h1>
+  <h1>Eisenhower Matrix <span>Add tasks below, then drag them into the appropriate quadrant.</span></h1>
   <div class="subtitle" id="task-count">0 tasks</div>
 </header>
 
@@ -317,6 +324,11 @@
     <div class="inbox-desc">All your tasks land here first. Drag each one into the matrix to sort it.</div>
     <div class="task-list" id="list-inbox"></div>
     <form class="add-row" data-quadrant="inbox">
+      <select id="task-priority" style="margin-right:8px;">
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
       <input type="text" placeholder="Add a task..." autofocus />
       <button type="submit">Add</button>
     </form>
@@ -369,7 +381,7 @@
 
 </div>
 
-<footer>saved automatically in this browser &middot; drag a task from the inbox into any quadrant, or between quadrants</footer>
+<footer>Your tasks are saved locally in this browser. Drag a task from the inbox into any quadrant, or between quadrants.</footer>
 
 <script>
   // ---- Data layer -----------------------------------------------------
@@ -399,10 +411,8 @@
   function addTask(text, quadrant) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    tasks.push({ id: crypto.randomUUID(), text: trimmed, quadrant });
-    saveTasks(tasks);
-    render();
-  }
+    const priority = document.getElementById('task-priority')?.value || 'medium';
+    tasks.push({ id: crypto.randomUUID(), text: trimmed, quadrant, priority });
 
   function removeTask(id) {
     tasks = tasks.filter(t => t.id !== id);
@@ -431,7 +441,7 @@
       if (items.length === 0) {
         const hint = document.createElement('div');
         hint.className = 'empty-hint';
-        hint.textContent = zone === 'inbox' ? 'No tasks yet. Add one below.' : 'Drop a task here.';
+        hint.textContent = zone === 'inbox' ? 'No tasks yet. Add one below.' : 'Drag a task here to schedule it.';
         list.appendChild(hint);
         return;
       }
@@ -441,16 +451,31 @@
         card.className = 'task';
         card.draggable = true;
         card.dataset.id = task.id;
+        card.dataset.priority = task.priority;
+        card.classList.add('priority-'+task.priority);
 
         const textEl = document.createElement('span');
         textEl.className = 'task-text';
         textEl.textContent = task.text;
+        textEl.contentEditable = true;
+        textEl.addEventListener('blur', () => {
+          if (textEl.textContent !== task.text) {
+            task.text = textEl.textContent;
+            saveTasks();
+          }
+        });
 
         const removeBtn = document.createElement('button');
         removeBtn.className = 'task-remove';
         removeBtn.textContent = '\u00D7';
         removeBtn.title = 'Delete task';
-        removeBtn.addEventListener('click', () => removeTask(task.id));
+        removeBtn.setAttribute('role', 'button');
+        removeBtn.setAttribute('aria-label', 'Delete task');
+        removeBtn.addEventListener('click', () => {
+          if (confirm('Delete this task?')) {
+            removeTask(task.id);
+          }
+        });
 
         card.addEventListener('dragstart', () => {
           card.classList.add('dragging');
