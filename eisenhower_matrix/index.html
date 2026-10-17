@@ -304,7 +304,6 @@
     .axis-left, .axis-right { display: none; }
   }
   .priority-low { opacity: 0.7; }
-  .priority-medium { }
   .priority-high { border-left: 4px solid #e74c3c; }
 </style>
 </head>
@@ -395,7 +394,13 @@
   function loadTasks() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const savedTasks = raw ? JSON.parse(raw) : [];
+      return Array.isArray(savedTasks)
+        ? savedTasks.map(task => ({
+            ...task,
+            priority: task.priority || 'medium'
+          }))
+        : [];
     } catch (e) {
       console.error('Could not read saved tasks:', e);
       return [];
@@ -413,6 +418,9 @@
     if (!trimmed) return;
     const priority = document.getElementById('task-priority')?.value || 'medium';
     tasks.push({ id: crypto.randomUUID(), text: trimmed, quadrant, priority });
+    saveTasks(tasks);
+    render();
+  }
 
   function removeTask(id) {
     tasks = tasks.filter(t => t.id !== id);
@@ -458,10 +466,19 @@
         textEl.className = 'task-text';
         textEl.textContent = task.text;
         textEl.contentEditable = true;
+        textEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            textEl.blur();
+          }
+        });
         textEl.addEventListener('blur', () => {
-          if (textEl.textContent !== task.text) {
-            task.text = textEl.textContent;
-            saveTasks();
+          const trimmedText = textEl.textContent.trim();
+          if (!trimmedText) {
+            textEl.textContent = task.text;
+          } else if (trimmedText !== task.text) {
+            task.text = trimmedText;
+            saveTasks(tasks);
           }
         });
 
@@ -477,7 +494,8 @@
           }
         });
 
-        card.addEventListener('dragstart', () => {
+        card.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', task.id);
           card.classList.add('dragging');
         });
         card.addEventListener('dragend', () => {
