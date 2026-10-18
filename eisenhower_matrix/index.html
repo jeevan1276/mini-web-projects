@@ -305,14 +305,96 @@
   }
   .priority-low { opacity: 0.7; }
   .priority-high { border-left: 4px solid #e74c3c; }
+  .toolbar {
+    max-width: 1300px;
+    margin: 0 auto 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .toolbar input, .toolbar button, .toolbar select, .add-row select,
+  .task-priority, .task-date, .task-tags, .task-move {
+    background: #0F1115;
+    border: 1px solid var(--grid-line);
+    border-radius: 4px;
+    color: var(--text);
+    font: 12px 'Inter', sans-serif;
+    padding: 7px 8px;
+  }
+  .toolbar input { flex: 1 1 180px; min-width: 140px; }
+  .toolbar button, .toolbar label { cursor: pointer; }
+  .toolbar button:hover { background: var(--grid-line); }
+  .toolbar .review-status { color: var(--text-dim); font: 11px 'JetBrains Mono', monospace; }
+  .add-row { flex-wrap: wrap; }
+  .add-row select { flex: 0 0 76px; min-width: 0; margin-right: 0 !important; }
+  .add-row input { min-width: 100px; }
+  .add-row input[type="date"] { flex: 0 0 122px; }
+  .add-row input[type="text"].tags-input { flex: 0 0 100px; }
+  .quadrant-head { gap: 6px; }
+  .quadrant-count {
+    color: var(--text-dim);
+    font: 10px 'JetBrains Mono', monospace;
+    margin-left: auto;
+  }
+  .overload-warning {
+    display: none;
+    color: #FBBF24;
+    font-size: 11px;
+    margin: 0 0 8px;
+  }
+  .overload-warning.visible { display: block; }
+  .task { flex-wrap: wrap; cursor: grab; }
+  .task.completed { opacity: 0.55; }
+  .task.completed .task-text { text-decoration: line-through; }
+  .task-main { display: flex; align-items: flex-start; gap: 7px; flex: 1 1 140px; min-width: 0; }
+  .task-main input { margin-top: 3px; accent-color: var(--schedule); }
+  .task-text { outline: none; }
+  .task-meta { width: 100%; display: flex; gap: 5px; flex-wrap: wrap; align-items: center; color: var(--text-dim); font-size: 10px; }
+  .task-meta.overdue { color: #FB7185; }
+  .task-tag { color: var(--inbox); }
+  .task-actions { display: flex; gap: 4px; align-items: center; }
+  .task-actions select { max-width: 94px; }
+  .task-remove { font-size: 15px; }
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: #252A35; border: 1px solid var(--grid-line); border-radius: 5px;
+    padding: 10px 12px; color: var(--text); font-size: 12px; z-index: 5;
+    display: none; gap: 12px; align-items: center;
+  }
+  .toast.visible { display: flex; }
+  .toast button { background: none; border: 0; color: var(--inbox); cursor: pointer; font-weight: 700; }
+  .review-panel { max-width: 1300px; margin: 0 auto 16px; color: var(--text-dim); font-size: 12px; display: none; }
+  .review-panel.visible { display: block; }
+  body.light { --bg:#F5F7FA; --panel:#FFFFFF; --panel-hover:#EEF2F7; --grid-line:#D5DAE3; --text:#20242D; --text-dim:#667085; }
+  body.light .task, body.light .add-row input, body.light .toolbar input,
+  body.light .toolbar button, body.light .toolbar select, body.light .add-row select,
+  body.light .task-priority, body.light .task-date, body.light .task-tags, body.light .task-move { background:#F8FAFC; }
+  @media (max-width: 900px) {
+    .axis-left, .axis-right { display: block; writing-mode: horizontal-tb; transform: none; font-size: 9px; }
+    .axis-left { left: 0; top: 50%; }
+    .axis-right { right: 0; top: 50%; }
+    .graph-wrap { padding-left: 45px; padding-right: 45px; }
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Eisenhower Matrix <span>Add tasks below, then drag them into the appropriate quadrant.</span></h1>
+  <h1>Eisenhower Matrix <span>Capture, clarify, and act on what matters.</span></h1>
   <div class="subtitle" id="task-count">0 tasks</div>
 </header>
+
+<div class="toolbar">
+  <input id="search" type="search" placeholder="Search tasks or tags..." aria-label="Search tasks or tags" />
+  <select id="filter-tag" aria-label="Filter by tag"><option value="">All tags</option></select>
+  <button id="export-btn" type="button">Export JSON</button>
+  <label class="toolbar-button">Import JSON<input id="import-input" type="file" accept="application/json" hidden /></label>
+  <button id="theme-toggle" type="button">Light theme</button>
+  <button id="review-toggle" type="button">Weekly review</button>
+  <button id="clear-completed" type="button">Clear completed</button>
+</div>
+<div class="review-panel" id="review-panel"></div>
 
 <div class="layout">
 
@@ -320,15 +402,18 @@
     <div class="inbox-head">
       <span class="inbox-title">Inbox</span>
     </div>
-    <div class="inbox-desc">All your tasks land here first. Drag each one into the matrix to sort it.</div>
+    <div class="inbox-desc">Capture tasks here, then sort them by urgency and importance.</div>
     <div class="task-list" id="list-inbox"></div>
     <form class="add-row" data-quadrant="inbox">
-      <select id="task-priority" style="margin-right:8px;">
+      <select id="task-priority" aria-label="Sort priority">
         <option value="low">Low</option>
         <option value="medium">Medium</option>
         <option value="high">High</option>
       </select>
       <input type="text" placeholder="Add a task..." autofocus />
+      <input type="date" aria-label="Due date" title="Due date" />
+      <input class="tags-input" type="text" placeholder="Tags" aria-label="Tags (comma separated)" />
+      <button type="button" id="suggest-task">Suggest</button>
       <button type="submit">Add</button>
     </form>
   </div>
@@ -344,8 +429,10 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Do</span>
           <span class="quadrant-tag">urgent + important</span>
+          <span class="quadrant-count">0</span>
         </div>
         <div class="quadrant-desc">Handle now, yourself.</div>
+        <div class="overload-warning">Do is overloaded. Consider scheduling or delegating something.</div>
         <div class="task-list" id="list-do"></div>
       </div>
 
@@ -353,6 +440,7 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Schedule</span>
           <span class="quadrant-tag">not urgent + important</span>
+          <span class="quadrant-count">0</span>
         </div>
         <div class="quadrant-desc">Block time for this. It matters most long-term.</div>
         <div class="task-list" id="list-schedule"></div>
@@ -362,6 +450,7 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Delegate</span>
           <span class="quadrant-tag">urgent + not important</span>
+          <span class="quadrant-count">0</span>
         </div>
         <div class="quadrant-desc">Hand it off if you can.</div>
         <div class="task-list" id="list-delegate"></div>
@@ -371,6 +460,7 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Delete</span>
           <span class="quadrant-tag">not urgent + not important</span>
+          <span class="quadrant-count">0</span>
         </div>
         <div class="quadrant-desc">Cut it. It's not worth your time.</div>
         <div class="task-list" id="list-delete"></div>
@@ -380,176 +470,183 @@
 
 </div>
 
-<footer>Your tasks are saved locally in this browser. Drag a task from the inbox into any quadrant, or between quadrants.</footer>
+<footer>Saved locally. Drag tasks, use Move to on touch, or focus a task and press 1–4. Press / to add a task.</footer>
+<div class="toast" id="toast"><span id="toast-message"></span><button id="toast-undo" type="button">Undo</button></div>
 
 <script>
-  // ---- Data layer -----------------------------------------------------
-  // Tasks are stored as an array of { id, text, quadrant } objects,
-  // persisted to localStorage so they survive closing/reopening the file.
-  // quadrant is one of: 'inbox', 'do', 'schedule', 'delegate', 'delete'
-
   const STORAGE_KEY = 'eisenhower-matrix-tasks';
+  const SETTINGS_KEY = 'eisenhower-matrix-settings';
   const ZONES = ['inbox', 'do', 'schedule', 'delegate', 'delete'];
+  const zoneNames = { inbox: 'Inbox', do: 'Do', schedule: 'Schedule', delegate: 'Delegate', delete: 'Delete' };
+  let tasks = loadTasks();
+  let settings = loadSettings();
+  let undoAction = null;
+  let reviewIndex = 0;
 
+  function newId() {
+    return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
   function loadTasks() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const savedTasks = raw ? JSON.parse(raw) : [];
-      return Array.isArray(savedTasks)
-        ? savedTasks.map(task => ({
-            ...task,
-            priority: task.priority || 'medium'
-          }))
-        : [];
-    } catch (e) {
-      console.error('Could not read saved tasks:', e);
-      return [];
-    }
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      return Array.isArray(saved) ? saved.map(task => ({
+        id: task.id || newId(), text: String(task.text || ''), quadrant: ZONES.includes(task.quadrant) ? task.quadrant : 'inbox',
+        priority: ['low', 'medium', 'high'].includes(task.priority) ? task.priority : 'medium',
+        dueDate: task.dueDate || '', completed: Boolean(task.completed), tags: Array.isArray(task.tags) ? task.tags : [],
+        recurring: task.recurring || ''
+      })).filter(task => task.text) : [];
+    } catch (error) { console.error('Could not read saved tasks:', error); return []; }
   }
-
-  function saveTasks(tasks) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  function loadSettings() {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); }
+    catch (error) { console.error('Could not read settings:', error); return {}; }
   }
-
-  let tasks = loadTasks();
-
-  function addTask(text, quadrant) {
+  function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); }
+  function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function normalizeTask(task) {
+    return {
+      id: task.id || newId(), text: String(task.text || ''), quadrant: ZONES.includes(task.quadrant) ? task.quadrant : 'inbox',
+      priority: ['low', 'medium', 'high'].includes(task.priority) ? task.priority : 'medium',
+      dueDate: task.dueDate || '', completed: Boolean(task.completed), tags: Array.isArray(task.tags) ? task.tags : [],
+      recurring: ['daily', 'weekly', 'monthly'].includes(task.recurring) ? task.recurring : ''
+    };
+  }
+  function visibleTasks() {
+    const query = document.getElementById('search').value.trim().toLowerCase();
+    const tag = document.getElementById('filter-tag').value;
+    return tasks.filter(task => (!query || task.text.toLowerCase().includes(query) || task.tags.some(t => t.toLowerCase().includes(query))) && (!tag || task.tags.includes(tag)));
+  }
+  function showToast(message, action) {
+    undoAction = action;
+    document.getElementById('toast-message').textContent = message;
+    document.getElementById('toast').classList.add('visible');
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => { document.getElementById('toast').classList.remove('visible'); undoAction = null; }, 5000);
+  }
+  function addTask(text, dueDate, tags) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const priority = document.getElementById('task-priority')?.value || 'medium';
-    tasks.push({ id: crypto.randomUUID(), text: trimmed, quadrant, priority });
-    saveTasks(tasks);
-    render();
+    tasks.push({ id: newId(), text: trimmed, quadrant: 'inbox', priority: document.getElementById('task-priority').value, dueDate, completed: false, tags, recurring: '' });
+    save(); render();
   }
-
+  function moveTask(id, quadrant) {
+    const task = tasks.find(item => item.id === id);
+    if (!task || !ZONES.includes(quadrant)) return;
+    const previous = task.quadrant; task.quadrant = quadrant; save(); render();
+    if (previous !== quadrant) showToast('Moved to ' + zoneNames[quadrant] + '.', () => { task.quadrant = previous; save(); render(); });
+  }
   function removeTask(id) {
-    tasks = tasks.filter(t => t.id !== id);
-    saveTasks(tasks);
-    render();
+    const index = tasks.findIndex(item => item.id === id);
+    if (index < 0) return;
+    const removed = tasks.splice(index, 1)[0]; save(); render();
+    showToast('Task deleted.', () => { tasks.splice(index, 0, removed); save(); render(); });
   }
-
-  function moveTask(id, newQuadrant) {
-    const task = tasks.find(t => t.id === id);
-    if (task) {
-      task.quadrant = newQuadrant;
-      saveTasks(tasks);
-      render();
-    }
+  function updateTask(task, key, value) { task[key] = value; save(); render(); }
+  function makeSelect(className, value, options, label) {
+    const select = document.createElement('select'); select.className = className; select.title = label; select.setAttribute('aria-label', label);
+    options.forEach(([optionValue, text]) => { const option = new Option(text, optionValue); option.selected = optionValue === value; select.add(option); });
+    return select;
   }
-
-  // ---- Rendering --------------------------------------------------------
-
   function render() {
+    const visible = visibleTasks();
     ZONES.forEach(zone => {
-      const list = document.getElementById('list-' + zone);
-      list.innerHTML = '';
-
-      const items = tasks.filter(t => t.quadrant === zone);
-
-      if (items.length === 0) {
-        const hint = document.createElement('div');
-        hint.className = 'empty-hint';
-        hint.textContent = zone === 'inbox' ? 'No tasks yet. Add one below.' : 'Drag a task here to schedule it.';
-        list.appendChild(hint);
-        return;
-      }
-
+      const list = document.getElementById('list-' + zone); list.innerHTML = '';
+      const items = visible.filter(task => task.quadrant === zone);
+      const count = document.querySelector('#q-' + zone + ' .quadrant-count');
+      if (count) count.textContent = items.length;
+      if (zone === 'do') document.querySelector('#q-do .overload-warning').classList.toggle('visible', tasks.filter(t => t.quadrant === 'do').length > 5);
+      if (!items.length) { const hint = document.createElement('div'); hint.className = 'empty-hint'; hint.textContent = zone === 'inbox' ? 'No tasks yet. Add one below.' : 'Move a task here to sort it.'; list.appendChild(hint); return; }
+      items.sort((a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] - { high: 0, medium: 1, low: 2 }[b.priority]));
       items.forEach(task => {
-        const card = document.createElement('div');
-        card.className = 'task';
-        card.draggable = true;
-        card.dataset.id = task.id;
-        card.dataset.priority = task.priority;
-        card.classList.add('priority-'+task.priority);
-
-        const textEl = document.createElement('span');
-        textEl.className = 'task-text';
-        textEl.textContent = task.text;
-        textEl.contentEditable = true;
-        textEl.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            textEl.blur();
+        const card = document.createElement('div'); card.className = 'task' + (task.completed ? ' completed' : '') + ' priority-' + task.priority; card.draggable = true; card.dataset.id = task.id;
+        const main = document.createElement('div'); main.className = 'task-main';
+        const check = document.createElement('input'); check.type = 'checkbox'; check.checked = task.completed; check.title = 'Mark complete'; check.addEventListener('change', () => {
+          task.completed = check.checked;
+          if (task.completed && task.recurring) {
+            const next = new Date(task.dueDate || today());
+            if (task.recurring === 'daily') next.setDate(next.getDate() + 1);
+            if (task.recurring === 'weekly') next.setDate(next.getDate() + 7);
+            if (task.recurring === 'monthly') next.setMonth(next.getMonth() + 1);
+            tasks.push({ ...task, id: newId(), completed: false, dueDate: next.toISOString().slice(0, 10), quadrant: 'schedule' });
           }
+          save(); render();
         });
-        textEl.addEventListener('blur', () => {
-          const trimmedText = textEl.textContent.trim();
-          if (!trimmedText) {
-            textEl.textContent = task.text;
-          } else if (trimmedText !== task.text) {
-            task.text = trimmedText;
-            saveTasks(tasks);
-          }
-        });
-
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'task-remove';
-        removeBtn.textContent = '\u00D7';
-        removeBtn.title = 'Delete task';
-        removeBtn.setAttribute('role', 'button');
-        removeBtn.setAttribute('aria-label', 'Delete task');
-        removeBtn.addEventListener('click', () => {
-          if (confirm('Delete this task?')) {
-            removeTask(task.id);
-          }
-        });
-
-        card.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('text/plain', task.id);
-          card.classList.add('dragging');
-        });
-        card.addEventListener('dragend', () => {
-          card.classList.remove('dragging');
-        });
-
-        card.appendChild(textEl);
-        card.appendChild(removeBtn);
+        const text = document.createElement('span'); text.className = 'task-text'; text.textContent = task.text; text.contentEditable = 'true'; text.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); text.blur(); } }); text.addEventListener('blur', () => { if (text.textContent.trim()) { task.text = text.textContent.trim(); save(); } else text.textContent = task.text; });
+        main.append(check, text);
+        const actions = document.createElement('div'); actions.className = 'task-actions';
+        const priority = makeSelect('task-priority', task.priority, [['low','Low'],['medium','Medium'],['high','High']], 'Sort priority'); priority.addEventListener('change', () => updateTask(task, 'priority', priority.value));
+        const move = makeSelect('task-move', task.quadrant, ZONES.map(zoneName => [zoneName, zoneNames[zoneName]]), 'Move to'); move.addEventListener('change', () => moveTask(task.id, move.value));
+        const remove = document.createElement('button'); remove.className = 'task-remove'; remove.textContent = '\u00D7'; remove.title = 'Delete task'; remove.setAttribute('aria-label', 'Delete task'); remove.addEventListener('click', () => removeTask(task.id));
+        actions.append(priority, move, remove);
+        const meta = document.createElement('div'); meta.className = 'task-meta' + (task.dueDate && task.dueDate < today() && !task.completed ? ' overdue' : '');
+        if (task.dueDate) meta.append(document.createTextNode((task.dueDate < today() && !task.completed ? 'Overdue: ' : 'Due: ') + task.dueDate));
+        task.tags.forEach(tag => { const tagEl = document.createElement('span'); tagEl.className = 'task-tag'; tagEl.textContent = '#' + tag; meta.append(tagEl); });
+        const due = document.createElement('input'); due.type = 'date'; due.className = 'task-date'; due.value = task.dueDate; due.title = 'Due date'; due.addEventListener('change', () => updateTask(task, 'dueDate', due.value)); meta.append(due);
+        const recurring = makeSelect('task-tags', task.recurring, [['','Once'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']], 'Recurring'); recurring.addEventListener('change', () => updateTask(task, 'recurring', recurring.value)); meta.append(recurring);
+        card.append(main, actions, meta);
+        card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', task.id); card.classList.add('dragging'); });
+        card.addEventListener('dragend', () => card.classList.remove('dragging'));
         list.appendChild(card);
       });
     });
-
-    document.getElementById('task-count').textContent =
-      tasks.length + (tasks.length === 1 ? ' task' : ' tasks');
+    document.getElementById('task-count').textContent = tasks.length + (tasks.length === 1 ? ' task' : ' tasks');
+    updateTagFilter();
   }
-
-  // ---- Drag and drop between zones (inbox + 4 quadrants) -----------------
-
+  function updateTagFilter() {
+    const select = document.getElementById('filter-tag'); const current = select.value;
+    select.innerHTML = '<option value="">All tags</option>';
+    [...new Set(tasks.flatMap(task => task.tags))].sort().forEach(tag => select.add(new Option('#' + tag, tag)));
+    select.value = current;
+  }
+  function exportTasks() {
+    const blob = new Blob([JSON.stringify(tasks, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url; link.download = 'eisenhower-tasks.json'; link.click(); URL.revokeObjectURL(url);
+  }
+  function review() {
+    const items = tasks.filter(task => !task.completed);
+    const stats = ZONES.map(zone => zoneNames[zone] + ': ' + tasks.filter(task => task.quadrant === zone).length).join(' · ');
+    if (!items.length) return 'All tasks are complete. Nice work. ' + stats;
+    const task = items[reviewIndex % items.length]; reviewIndex++; return 'Review ' + zoneNames[task.quadrant] + ': "' + task.text + '"' + (task.dueDate ? ' (due ' + task.dueDate + ')' : '') + '.';
+  }
+  function suggestQuadrant(dueDate, priority) {
+    if (priority === 'high' || (dueDate && dueDate <= today())) return 'do';
+    if (dueDate) return 'schedule';
+    return 'inbox';
+  }
+  function promoteDueTasks() {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() + 1);
+    const limit = cutoff.toISOString().slice(0, 10);
+    let changed = false;
+    tasks.forEach(task => { if (!task.completed && task.quadrant === 'schedule' && task.dueDate && task.dueDate <= limit) { task.quadrant = 'do'; changed = true; } });
+    if (changed) save();
+  }
   document.querySelectorAll('[data-quadrant]').forEach(zone => {
-    // Only wire up drag events on containers that actually hold a task list
-    // (the inbox div and each quadrant div both qualify).
-    zone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      zone.classList.add('drag-over');
-    });
-
-    zone.addEventListener('dragleave', (e) => {
-      // Only clear the highlight when the pointer actually leaves this zone,
-      // not when it moves between child elements inside it.
-      if (!zone.contains(e.relatedTarget)) {
-        zone.classList.remove('drag-over');
-      }
-    });
-
-    zone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      zone.classList.remove('drag-over');
-      const draggingCard = document.querySelector('.task.dragging');
-      if (draggingCard) {
-        moveTask(draggingCard.dataset.id, zone.dataset.quadrant);
-      }
-    });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over'); });
+    zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); moveTask(e.dataTransfer.getData('text/plain'), zone.dataset.quadrant); });
   });
-
-  // ---- Add-task form (inbox only) ----------------------------------------
-
-  document.querySelector('.add-row[data-quadrant="inbox"]').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = e.target.querySelector('input');
-    addTask(input.value, 'inbox');
-    input.value = '';
-    input.focus();
+  const addForm = document.querySelector('.add-row');
+  addForm.addEventListener('submit', e => {
+    e.preventDefault(); const inputs = e.target.querySelectorAll('input'); addTask(inputs[0].value, inputs[1].value, inputs[2].value.split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean)); const suggestion = e.target.dataset.suggestion; if (suggestion && suggestion !== 'inbox') tasks[tasks.length - 1].quadrant = suggestion; delete e.target.dataset.suggestion; document.getElementById('suggest-task').textContent = 'Suggest'; save(); render(); e.target.reset(); inputs[0].focus();
   });
-
+  document.getElementById('suggest-task').addEventListener('click', () => {
+    const inputs = addForm.querySelectorAll('input');
+    addForm.dataset.suggestion = suggestQuadrant(inputs[1].value, document.getElementById('task-priority').value);
+    document.getElementById('suggest-task').textContent = 'Suggested: ' + zoneNames[addForm.dataset.suggestion];
+  });
+  document.getElementById('search').addEventListener('input', render);
+  document.getElementById('filter-tag').addEventListener('change', render);
+  document.getElementById('clear-completed').addEventListener('click', () => { const old = tasks; tasks = tasks.filter(task => !task.completed); save(); render(); showToast('Completed tasks cleared.', () => { tasks = old; save(); render(); }); });
+  document.getElementById('export-btn').addEventListener('click', exportTasks);
+  document.getElementById('import-input').addEventListener('change', async e => { try { const imported = JSON.parse(await e.target.files[0].text()); if (!Array.isArray(imported)) throw new Error('JSON must contain an array'); tasks = imported.map(normalizeTask).filter(task => task.text); save(); render(); } catch (error) { console.error('Could not import tasks:', error); showToast('Import failed: choose a valid task JSON file.'); } e.target.value = ''; });
+  document.getElementById('theme-toggle').addEventListener('click', () => { settings.light = !settings.light; document.body.classList.toggle('light', settings.light); document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme'; saveSettings(); });
+  document.getElementById('review-toggle').addEventListener('click', () => { const panel = document.getElementById('review-panel'); panel.classList.toggle('visible'); panel.textContent = panel.classList.contains('visible') ? review() : ''; });
+  document.getElementById('toast-undo').addEventListener('click', () => { if (undoAction) undoAction(); document.getElementById('toast').classList.remove('visible'); undoAction = null; });
+  document.addEventListener('keydown', e => { if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') { e.preventDefault(); document.querySelector('.add-row input').focus(); } });
+  promoteDueTasks();
+  document.body.classList.toggle('light', settings.light);
+  document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme';
   render();
 </script>
 
