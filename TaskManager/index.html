@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eisenhower Matrix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ===== Eisenhower Matrix: humane stylesheet ===== */
+
+/* ---- Tokens ---- */
+:root {
+  --bg: #16171B;
+  --panel: #1E2025;
+  --panel-hover: #24272E;
+  --card: #262930;
+  --line: #343843;
+  --text: #ECE9E4;
+  --text-soft: #A9A7A2;
+
+  --do: #E8896F;
+  --schedule: #8CC5A0;
+  --delegate: #8DB4E0;
+  --delete: #A8A8A8;
+  --inbox: #BBA8E6;
+  --attention: #E9B872;
+  --focus: #BBA8E6;
+
+  --radius-control: 10px;
+  --radius-panel: 14px;
+  --radius-pill: 999px;
+  --shadow-float: 0 2px 8px rgb(0 0 0 / .12);
+  --ease: 180ms ease-out;
+}
+
+body.light {
+  --bg: #FAF8F5;
+  --panel: #FFFFFF;
+  --panel-hover: #F3F0EB;
+  --card: #F3F0EB;
+  --line: #DDD8D0;
+  --text: #2B2A28;
+  --text-soft: #6B6760;
+  --do: #B4533A;
+  --schedule: #3F7D58;
+  --delegate: #2F6AA8;
+  --delete: #6B6B6B;
+  --inbox: #6E54B0;
+  --attention: #9A6400;
+  --focus: #6E54B0;
+}
+
+@media (prefers-contrast: more) {
+  :root { --line: #5A5F6E; --text-soft: #C8C6C1; }
+  body.light { --line: #8A847A; --text-soft: #4A4640; }
+}
+
+/* ---- Reset and base ---- */
+* { box-sizing: border-box; }
+
+html { font-size: 100%; }
+
+body {
+  margin: 0;
+  padding: 24px 16px 80px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ---- Header ---- */
+header {
+  max-width: 1300px;
+  margin: 0 auto 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+h1 span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-size: 0.9375rem;
+  font-weight: 400;
+}
+
+.subtitle {
+  color: var(--text-soft);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+/* ---- Toolbar and controls ---- */
+.toolbar {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar input { flex: 1 1 200px; min-width: 140px; }
+
+.toolbar input,
+.toolbar button,
+.toolbar select,
+.add-row select,
+.add-row input,
+.task-priority,
+.task-move,
+.task-recurring,
+.task-date,
+.task-tags-input {
+  min-height: 36px;
+  padding: 6px 12px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  font: 0.8125rem 'Inter', system-ui, sans-serif;
+  transition: background var(--ease), border-color var(--ease);
+}
+
+.toolbar button,
+.add-row button,
+.task-edit,
+.task-remove,
+.toast button {
+  cursor: pointer;
+}
+
+.toolbar button:hover,
+.add-row button:hover { background: var(--panel-hover); }
+
+.add-row input:focus,
+.toolbar input:focus { border-color: var(--text-soft); }
+
+/* ---- Layout (mobile first) ---- */
+.layout {
+  max-width: 1300px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inbox {
+  width: 100%;
+  min-height: 200px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  transition: background var(--ease), border-color var(--ease);
+}
+
+.inbox.drag-over {
+  background: var(--panel-hover);
+  border-color: var(--inbox);
+}
+
+.inbox-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.inbox-title {
+  color: var(--inbox);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.inbox-desc,
+.quadrant-desc {
+  margin-bottom: 12px;
+  max-width: 60ch;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+}
+
+/* ---- Matrix ---- */
+.graph-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  padding: 28px 40px 34px;
+}
+
+.axis-label {
+  position: absolute;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.axis-top { top: 4px; left: 50%; transform: translateX(-50%); }
+.axis-bottom { bottom: 4px; left: 50%; transform: translateX(-50%); }
+.axis-left { left: 0; top: 50%; font-size: 0.6875rem; }
+.axis-right { right: 0; top: 50%; font-size: 0.6875rem; }
+
+.matrix {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  min-height: 0;
+}
+
+.quadrant {
+  min-height: 220px;
+  padding: 16px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  transition: background var(--ease), border-color var(--ease);
+}
+
+.quadrant.drag-over { background: var(--panel-hover); }
+
+.quadrant-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.quadrant-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.quadrant-tag {
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 1;
+}
+
+#q-do .quadrant-title,       #q-do .quadrant-tag       { color: var(--do); }
+#q-schedule .quadrant-title, #q-schedule .quadrant-tag { color: var(--schedule); }
+#q-delegate .quadrant-title, #q-delegate .quadrant-tag { color: var(--delegate); }
+#q-delete .quadrant-title,   #q-delete .quadrant-tag   { color: var(--delete); }
+
+.quadrant-count {
+  margin-left: auto;
+  color: var(--text-soft);
+  font: 0.75rem 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.overload-warning {
+  display: none;
+  margin: 0 0 8px;
+  color: var(--attention);
+  font-size: 0.8125rem;
+}
+
+.overload-warning.visible { display: block; }
+
+/* ---- Task list and cards ---- */
+.task-list {
+  flex: 1;
+  min-height: 48px;
+  padding-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  cursor: grab;
+  transition: opacity var(--ease), background var(--ease), border-color var(--ease);
+}
+
+.task:active { cursor: grabbing; }
+
+.task.dragging {
+  opacity: .5;
+  box-shadow: var(--shadow-float);
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.task.priority-high { border-left: 4px solid var(--do); }
+
+.task.completed { opacity: .6; }
+.task.completed .task-text {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-soft);
+}
+
+.task-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.task-main input {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  accent-color: var(--schedule);
+}
+
+.task-text {
+  flex: 1;
+  word-break: break-word;
+  outline: none;
+}
+
+.task-text[contenteditable="true"] {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-edit,
+.task-remove {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-soft);
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: 0.8125rem;
+  line-height: 1;
+  transition: background var(--ease), color var(--ease);
+}
+
+.task-edit:hover,
+.task-remove:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.task-meta {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+}
+
+.task-meta.overdue { color: var(--attention); }
+
+.task-tag {
+  padding: 1px 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--inbox) 14%, transparent);
+  color: var(--inbox);
+}
+
+.task-tags-input { min-width: 80px; max-width: 140px; }
+
+.empty-hint {
+  padding: 8px 4px;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+/* ---- Add form ---- */
+.add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.add-row > input[type="text"] {
+  order: 1;
+  flex: 1 1 calc(100% - 72px);
+  min-width: 0;
+}
+
+.add-row > button[type="submit"] {
+  order: 2;
+  flex: 0 0 auto;
+  padding: 6px 18px;
+  background: var(--text);
+  color: var(--bg);
+  border: 0;
+  border-radius: var(--radius-control);
+  font-weight: 600;
+}
+
+.add-row > button[type="submit"]:hover {
+  background: var(--text);
+  opacity: .9;
+}
+
+.add-more-toggle {
+  order: 3;
+  display: block;
+  flex: 1;
+  background: transparent;
+  color: var(--text-soft);
+}
+
+.add-more {
+  order: 4;
+  display: none;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.add-more.open { display: flex; }
+.add-more select { flex: 0 0 96px; min-width: 0; }
+.add-more input[type="date"] { flex: 0 0 140px; }
+.add-more .tags-input { flex: 1 1 100px; min-width: 80px; }
+.add-more #suggest-task { flex: 0 0 auto; }
+
+/* ---- Review panel ---- */
+.review-panel {
+  display: none;
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  padding: 16px 20px;
+  background: var(--panel);
+  color: var(--text-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  font-size: 0.875rem;
+}
+
+.review-panel.visible { display: block; }
+.review-panel button,
+.review-panel select { margin: 4px 6px 0 0; }
+
+/* ---- Toast ---- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 5;
+  display: none;
+  align-items: center;
+  gap: 16px;
+  max-width: calc(100% - 32px);
+  padding: 12px 16px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+  font-size: 0.875rem;
+  transform: translateX(-50%);
+}
+
+.toast.visible { display: flex; }
+
+.toast button {
+  padding: 4px 8px;
+  background: none;
+  border: 0;
+  color: var(--focus);
+  font-weight: 600;
+}
+
+/* ---- Footer ---- */
+footer {
+  max-width: 1300px;
+  margin: 24px auto 0;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ---- Touch targets ---- */
+@media (pointer: coarse) {
+  .toolbar button,
+  .toolbar input,
+  .toolbar select,
+  .add-row button,
+  .add-row input,
+  .add-row select,
+  .task-edit,
+  .task-remove,
+  .task-priority,
+  .task-move,
+  .task-recurring,
+  .task-date,
+  .task-tags-input { min-height: 44px; }
+  .task-edit,
+  .task-remove { min-width: 44px; }
+  .task-main input { width: 24px; height: 24px; }
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ===== Wide layout (all media queries stay at the end) ===== */
+@media (min-width: 900px) {
+  body { padding: 32px 24px 80px; }
+
+  .layout {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .inbox {
+    flex: 0 0 300px;
+    width: 300px;
+    min-height: 560px;
+  }
+
+  .graph-wrap {
+    flex: 1;
+    padding: 36px 40px 44px 56px;
+  }
+
+  .axis-left {
+    left: -4px;
+    font-size: 0.75rem;
+    transform: translateY(-50%) rotate(-90deg);
+    transform-origin: left center;
+  }
+
+  .axis-right {
+    right: -14px;
+    font-size: 0.75rem;
+    transform: translateY(-50%) rotate(-90deg);
+    transform-origin: right center;
+  }
+
+  .matrix {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    min-height: 600px;
+  }
+
+  .add-more-toggle { display: none; }
+  .add-more { display: flex; order: 3; }
+  .add-row > input[type="text"] { flex: 1 1 120px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Eisenhower Matrix <span>Capture, clarify, and act on what matters.</span></h1>
+  <div class="subtitle" id="task-count">0 tasks</div>
+</header>
+
+<div class="toolbar">
+  <input id="search" type="search" placeholder="Search tasks or tags..." aria-label="Search tasks or tags" />
+  <select id="filter-tag" aria-label="Filter by tag"><option value="">All tags</option></select>
+  <button id="export-btn" type="button">Export JSON</button>
+  <button id="import-btn" type="button">Import JSON</button>
+  <input id="import-input" type="file" accept="application/json" hidden />
+  <button id="theme-toggle" type="button">Light theme</button>
+  <button id="review-toggle" type="button">Weekly review</button>
+  <button id="clear-completed" type="button">Clear completed</button>
+</div>
+<div class="review-panel" id="review-panel"></div>
+
+<div class="layout">
+
+  <div class="inbox" data-quadrant="inbox">
+    <div class="inbox-head">
+      <span class="inbox-title">Inbox</span>
+    </div>
+    <div class="inbox-desc">Capture tasks here, then sort them by urgency and importance.</div>
+    <div class="task-list" id="list-inbox"></div>
+    <form class="add-row" data-quadrant="inbox">
+      <input id="new-task-text" name="text" type="text" placeholder="Add a task..." />
+      <button type="button" class="add-more-toggle" aria-expanded="false">More</button>
+      <div class="add-more">
+        <select id="task-priority" aria-label="Sort priority">
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+        <option value="high">High</option>
+        </select>
+        <input id="new-task-date" name="dueDate" type="date" aria-label="Due date" title="Due date" />
+        <input id="new-task-tags" name="tags" class="tags-input" type="text" placeholder="Tags" aria-label="Tags (comma separated)" />
+        <button type="button" id="suggest-task">Suggest</button>
+      </div>
+      <button type="submit">Add</button>
+    </form>
+  </div>
+
+  <div class="graph-wrap">
+    <div class="axis-label axis-top">important</div>
+    <div class="axis-label axis-bottom">not important</div>
+    <div class="axis-label axis-left">urgent</div>
+    <div class="axis-label axis-right">not urgent</div>
+
+    <div class="matrix">
+      <div class="quadrant" id="q-do" data-quadrant="do">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Do</span>
+          <span class="quadrant-tag">urgent + important</span>
+          <span class="quadrant-count">0</span>
+        </div>
+        <div class="quadrant-desc">Handle now, yourself.</div>
+        <div class="overload-warning">Do is overloaded. Consider scheduling or delegating something.</div>
+        <div class="task-list" id="list-do"></div>
+      </div>
+
+      <div class="quadrant" id="q-schedule" data-quadrant="schedule">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Schedule</span>
+          <span class="quadrant-tag">not urgent + important</span>
+          <span class="quadrant-count">0</span>
+        </div>
+        <div class="quadrant-desc">Block time for this. It matters most long-term.</div>
+        <div class="task-list" id="list-schedule"></div>
+      </div>
+
+      <div class="quadrant" id="q-delegate" data-quadrant="delegate">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Delegate</span>
+          <span class="quadrant-tag">urgent + not important</span>
+          <span class="quadrant-count">0</span>
+        </div>
+        <div class="quadrant-desc">Hand it off if you can.</div>
+        <div class="task-list" id="list-delegate"></div>
+      </div>
+
+      <div class="quadrant" id="q-delete" data-quadrant="delete">
+        <div class="quadrant-head">
+          <span class="quadrant-title">Delete</span>
+          <span class="quadrant-tag">not urgent + not important</span>
+          <span class="quadrant-count">0</span>
+        </div>
+        <div class="quadrant-desc">Cut it. It's not worth your time.</div>
+        <div class="task-list" id="list-delete"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>Saved locally. Drag tasks, use Move to on touch, or focus a task: 1 Inbox · 2 Do · 3 Schedule · 4 Delegate · 5 Delete · Enter/F2 edit · Space complete · Delete remove. Press / to add a task.</footer>
+<div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="toast-undo" type="button">Undo</button></div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
