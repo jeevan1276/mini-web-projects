@@ -11,10 +11,12 @@
 
 /* ---- Tokens ---- */
 :root {
+  color-scheme: dark;
   --bg: #16171B;
   --panel: #1E2025;
   --panel-hover: #24272E;
   --card: #262930;
+  --card-hover: #2D3038;
   --line: #343843;
   --text: #ECE9E4;
   --text-soft: #A9A7A2;
@@ -35,10 +37,12 @@
 }
 
 body.light {
+  color-scheme: light;
   --bg: #FAF8F5;
   --panel: #FFFFFF;
   --panel-hover: #F3F0EB;
   --card: #F3F0EB;
+  --card-hover: #EAE5DE;
   --line: #DDD8D0;
   --text: #2B2A28;
   --text-soft: #6B6760;
@@ -313,6 +317,8 @@ h1 span {
   transition: opacity var(--ease), background var(--ease), border-color var(--ease);
 }
 
+.task:hover { background: var(--card-hover, var(--panel-hover)); }
+
 .task:active { cursor: grabbing; }
 
 .task.dragging {
@@ -351,7 +357,7 @@ h1 span {
   outline: none;
 }
 
-.task-text[contenteditable="true"] {
+.task-text[contenteditable]:not([contenteditable="false"]) {
   outline: 2px solid var(--focus);
   outline-offset: 3px;
   border-radius: 4px;
@@ -528,6 +534,7 @@ footer {
   .toolbar input,
   .toolbar select,
   .add-row button,
+  .review-panel button,
   .add-row input,
   .add-row select,
   .task-edit,
@@ -544,6 +551,7 @@ footer {
 
 /* ---- Reduced motion ---- */
 @media (prefers-reduced-motion: reduce) {
+  /* !important is intentional here so reduced-motion always overrides transitions. */
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 

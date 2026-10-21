@@ -4,6 +4,7 @@
   const ZONES = ['inbox', 'do', 'schedule', 'delegate', 'delete'];
   const zoneNames = { inbox: 'Inbox', do: 'Do', schedule: 'Schedule', delegate: 'Delegate', delete: 'Delete' };
   let deletedIds = new Set();
+  let deletedAt = new Map();
   let tasks = loadTasks();
   let settings = loadSettings();
   let undoAction = null;
@@ -16,7 +17,14 @@
   function loadTasks() {
     try {
       const stored = readStore();
-      deletedIds = new Set(Array.isArray(stored?.deletedIds) ? stored.deletedIds : []);
+      const cutoff = Date.now() - 30 * 86400000;
+      deletedAt = new Map();
+      (Array.isArray(stored?.deletedIds) ? stored.deletedIds : []).forEach(entry => {
+        const id = typeof entry === 'string' ? entry : entry?.id;
+        const at = typeof entry === 'string' ? 0 : entry?.at;
+        if (typeof id === 'string' && (!at || at >= cutoff)) deletedAt.set(id, Number.isFinite(at) ? at : Date.now());
+      });
+      deletedIds = new Set(deletedAt.keys());
       const rawTasks = unwrapTasks(stored) || [];
       const usedIds = new Set();
       return rawTasks.map(task => {
@@ -55,6 +63,18 @@
   function save() {
     try {
       const storedTasks = unwrapTasks(readStore()) || [];
+      const cutoff = Date.now() - 30 * 86400000;
+      const storedDeleted = Array.isArray(readStore()?.deletedIds) ? readStore().deletedIds : [];
+      storedDeleted.forEach(entry => {
+        const id = typeof entry === 'string' ? entry : entry?.id;
+        const at = typeof entry === 'string' ? 0 : entry?.at;
+        if (typeof id === 'string' && (!at || at >= cutoff)) {
+          deletedIds.add(id);
+          if (!deletedAt.has(id)) deletedAt.set(id, Number.isFinite(at) ? at : Date.now());
+        }
+      });
+      deletedIds.forEach(id => { if (!deletedAt.has(id)) deletedAt.set(id, Date.now()); });
+      [...deletedAt.keys()].forEach(id => { if (!deletedIds.has(id) || deletedAt.get(id) < cutoff) deletedAt.delete(id); });
       const localById = new Map(tasks.map(task => [task.id, task]));
       const remoteById = new Map(storedTasks.map(normalizeTask).map(task => [task.id, task]));
       remoteById.forEach((remote, id) => {
@@ -62,7 +82,10 @@
         if (!local || (remote.updatedAt || 0) > (local.updatedAt || 0)) localById.set(id, remote);
       });
       const mergedTasks = [...localById.values()].filter(task => !deletedIds.has(task.id));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, tasks: mergedTasks, deletedIds: [...deletedIds] }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: 1, tasks: mergedTasks,
+        deletedIds: [...deletedAt].map(([id, at]) => ({ id, at }))
+      }));
       tasks = mergedTasks;
     }
     catch (error) { console.error('Could not save tasks:', error); showToast('Could not save changes in this browser.'); }
@@ -130,6 +153,8 @@
     return task;
   }
   function setCompleted(task, completed, restoreReviewFocus = false) {
+    task = tasks.find(item => item.id === task.id);
+    if (!task) return;
     const wasCompleted = task.completed;
     touchTask(task);
     let removedSpawn = null;
@@ -143,6 +168,8 @@
           spawnedCopy.dueDate !== '' && spawnedCopy.quadrant === task.quadrant &&
           spawnedCopy.recurring === task.recurring && JSON.stringify(spawnedCopy.tags) === JSON.stringify(task.tags)) {
         removedSpawn = spawnedCopy;
+        deletedIds.add(spawnedCopy.id);
+        deletedAt.set(spawnedCopy.id, Date.now());
         tasks = tasks.filter(item => item.id !== spawnedCopy.id);
       } else if (spawnedCopy) {
         retainedSpawn = true;
@@ -184,6 +211,8 @@
       showToast('Removed the untouched recurring copy.', () => {
         if (!tasks.some(item => item.id === removedSpawn.id)) {
           tasks.push(removedSpawn);
+          deletedIds.delete(removedSpawn.id);
+          deletedAt.delete(removedSpawn.id);
           task.spawned = true;
           task.spawnedCopyId = removedSpawn.id;
           save();
@@ -207,21 +236,26 @@
     if (index < 0) return;
     const card = document.querySelector('.task[data-id="' + CSS.escape(id) + '"]');
     const nextId = card?.nextElementSibling?.dataset.id || card?.previousElementSibling?.dataset.id;
-    const removed = tasks.splice(index, 1)[0]; deletedIds.add(removed.id); save(); render(null, null, restoreReviewFocus);
+    const removed = tasks.splice(index, 1)[0]; deletedIds.add(removed.id); deletedAt.set(removed.id, Date.now()); save(); render(null, null, restoreReviewFocus);
     const nextCard = nextId && document.querySelector('.task[data-id="' + CSS.escape(nextId) + '"]');
-    if (nextCard) nextCard.focus();
+    if (nextCard && !restoreReviewFocus) nextCard.focus();
     showToast('Task deleted.', () => {
       if (!tasks.some(item => item.id === removed.id)) {
         tasks.splice(Math.min(index, tasks.length), 0, removed);
         deletedIds.delete(removed.id);
+        deletedAt.delete(removed.id);
         save(); render();
       }
     });
   }
   function updateTask(task, key, value, focusSelector, event) {
+    task = tasks.find(item => item.id === task.id);
+    if (!task) return;
     if (JSON.stringify(task[key]) === JSON.stringify(value)) return;
     task[key] = value;
+    if (key === 'dueDate' || key === 'recurring') task.recurringDay = 0;
     touchTask(task);
+    event?.currentTarget.closest('.task')?.setAttribute('data-dirty', 'true');
     save();
     if (focusSelector) render(task.id, focusSelector);
     else if (!event || !event.relatedTarget || !event.currentTarget.closest('.task').contains(event.relatedTarget)) {
@@ -253,25 +287,35 @@
         card.setAttribute('role', 'group');
         card.setAttribute('aria-label', 'Task: ' + task.text);
         const check = document.createElement('input'); check.type = 'checkbox'; check.checked = task.completed; check.title = 'Mark complete'; check.setAttribute('aria-label', 'Mark complete: ' + task.text); check.addEventListener('change', () => {
-          setCompleted(task, check.checked);
+          const current = tasks.find(item => item.id === task.id);
+          if (current) setCompleted(current, check.checked);
         });
         const text = document.createElement('span'); text.className = 'task-text'; text.textContent = task.text;
-        const beginEdit = () => { card.draggable = false; text.contentEditable = 'plaintext-only'; text.dataset.original = task.text; text.focus(); };
+        const beginEdit = () => {
+          const current = tasks.find(item => item.id === task.id);
+          if (!current) return;
+          card.draggable = false;
+          try { text.contentEditable = 'plaintext-only'; } catch { text.contentEditable = 'true'; }
+          text.dataset.original = current.text;
+          text.focus();
+        };
         const finishEdit = () => {
+          const current = tasks.find(item => item.id === task.id);
+          if (!current) return;
           text.contentEditable = 'false'; card.draggable = true;
-          if (text.textContent.trim() && text.textContent.trim() !== task.text) {
-            task.text = text.textContent.trim();
-            card.setAttribute('aria-label', 'Task: ' + task.text);
-            check.setAttribute('aria-label', 'Mark complete: ' + task.text);
-            priority.setAttribute('aria-label', 'Sort priority for: ' + task.text);
-            move.setAttribute('aria-label', 'Move to: ' + task.text);
-            tagsInput.setAttribute('aria-label', 'Tags for: ' + task.text);
-            due.setAttribute('aria-label', 'Due date for: ' + task.text);
-            recurring.setAttribute('aria-label', 'Recurring for: ' + task.text);
-            edit.setAttribute('aria-label', 'Edit task: ' + task.text);
-            touchTask(task);
+          if (text.textContent.trim() && text.textContent.trim() !== current.text) {
+            current.text = text.textContent.trim();
+            card.setAttribute('aria-label', 'Task: ' + current.text);
+            check.setAttribute('aria-label', 'Mark complete: ' + current.text);
+            priority.setAttribute('aria-label', 'Sort priority for: ' + current.text);
+            move.setAttribute('aria-label', 'Move to: ' + current.text);
+            tagsInput.setAttribute('aria-label', 'Tags for: ' + current.text);
+            due.setAttribute('aria-label', 'Due date for: ' + current.text);
+            recurring.setAttribute('aria-label', 'Recurring for: ' + current.text);
+            edit.setAttribute('aria-label', 'Edit task: ' + current.text);
+            touchTask(current);
             save();
-          } else if (!text.textContent.trim()) text.textContent = task.text;
+          } else if (!text.textContent.trim()) text.textContent = current.text;
         };
         text.addEventListener('dblclick', beginEdit);
         text.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); text.blur(); } if (e.key === 'Escape') { text.textContent = text.dataset.original || task.text; text.blur(); } });
@@ -291,8 +335,14 @@
         task.tags.forEach(tag => { const tagEl = document.createElement('span'); tagEl.className = 'task-tag'; tagEl.textContent = '#' + tag; meta.append(tagEl); });
         const tagsInput = document.createElement('input'); tagsInput.className = 'task-tags-input'; tagsInput.value = task.tags.join(', '); tagsInput.title = 'Tags'; tagsInput.setAttribute('aria-label', 'Tags for: ' + task.text); tagsInput.addEventListener('focusout', event => updateTask(task, 'tags', tagsInput.value.split(',').map(tag => tag.replace(/^#+/, '').trim().toLowerCase()).filter(Boolean), null, event)); meta.append(tagsInput);
         const due = document.createElement('input'); due.type = 'date'; due.className = 'task-date'; due.value = task.dueDate; due.title = 'Due date'; due.setAttribute('aria-label', 'Due date for: ' + task.text); due.addEventListener('focusout', event => updateTask(task, 'dueDate', due.value, null, event)); meta.append(due);
-        const recurring = makeSelect('task-recurring', task.recurring, [['','Once'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']], 'Recurring for: ' + task.text); recurring.addEventListener('change', () => updateTask(task, 'recurring', recurring.value)); meta.append(recurring);
+        const recurring = makeSelect('task-recurring', task.recurring, [['','Once'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']], 'Recurring for: ' + task.text); recurring.addEventListener('change', () => updateTask(task, 'recurring', recurring.value, '.task-recurring')); meta.append(recurring);
         card.append(main, actions, meta);
+        card.addEventListener('focusout', event => {
+          if (!card.contains(event.relatedTarget) && card.dataset.dirty === 'true') {
+            delete card.dataset.dirty;
+            render();
+          }
+        });
         card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', task.id); card.classList.add('dragging'); });
         card.addEventListener('dragend', () => card.classList.remove('dragging'));
         card.addEventListener('keydown', e => {
@@ -413,12 +463,12 @@
     const removed = tasks.filter(task => task.completed);
     if (!removed.length) return;
     const removedIds = new Set(removed.map(task => task.id));
-    removedIds.forEach(id => deletedIds.add(id));
+    removedIds.forEach(id => { deletedIds.add(id); deletedAt.set(id, Date.now()); });
     tasks = tasks.filter(task => !removedIds.has(task.id)); save(); render();
     showToast('Completed tasks cleared.', () => {
       const existing = new Set(tasks.map(task => task.id));
       const restored = removed.filter(task => !existing.has(task.id));
-      restored.forEach(task => deletedIds.delete(task.id));
+      restored.forEach(task => { deletedIds.delete(task.id); deletedAt.delete(task.id); });
       tasks.push(...restored); save(); render();
     });
   });
@@ -438,12 +488,13 @@
       });
       const importedIds = new Set(importedTasks.map(task => task.id));
       deletedIds = new Set(previous.map(task => task.id));
+      deletedAt = new Map(previous.map(task => [task.id, Date.now()]));
       importedTasks.forEach(task => { touchTask(task); deletedIds.delete(task.id); });
       tasks = importedTasks; save(); render();
       showToast('Tasks imported.', () => {
         const current = tasks.filter(task => !importedIds.has(task.id));
         const currentIds = new Set(current.map(task => task.id));
-        previous.forEach(task => deletedIds.delete(task.id));
+        previous.forEach(task => { deletedIds.delete(task.id); deletedAt.delete(task.id); });
         tasks = current.concat(previous.filter(task => !currentIds.has(task.id))); save(); render();
       });
     } catch (error) { console.error('Could not import tasks:', error); showToast('Import failed: choose a valid task JSON file.'); }
