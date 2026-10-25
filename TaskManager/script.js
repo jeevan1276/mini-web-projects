@@ -10,6 +10,8 @@
   let undoAction = null;
   let reviewIndex = 0;
   let pendingStorageSync = false;
+  const selectedTaskIds = new Set();
+  const activeTimers = new Map();
 
   function newId() {
     return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -62,9 +64,10 @@
   }
   function save() {
     try {
-      const storedTasks = unwrapTasks(readStore()) || [];
+      const stored = readStore();
+      const storedTasks = unwrapTasks(stored) || [];
       const cutoff = Date.now() - 30 * 86400000;
-      const storedDeleted = Array.isArray(readStore()?.deletedIds) ? readStore().deletedIds : [];
+      const storedDeleted = Array.isArray(stored?.deletedIds) ? stored.deletedIds : [];
       storedDeleted.forEach(entry => {
         const id = typeof entry === 'string' ? entry : entry?.id;
         const at = typeof entry === 'string' ? 0 : entry?.at;
@@ -123,6 +126,11 @@
       dueDate, completed: Boolean(source.completed), tags,
       recurring: ['daily', 'weekly', 'monthly'].includes(source.recurring) ? source.recurring : '',
       completedAt: typeof source.completedAt === 'string' ? source.completedAt : '',
+      notes: typeof source.notes === 'string' ? source.notes : '',
+      subtasks: Array.isArray(source.subtasks) ? source.subtasks.map(item => ({ text: String(item?.text || ''), completed: Boolean(item?.completed) })).filter(item => item.text) : [],
+      elapsedSeconds: Number.isFinite(source.elapsedSeconds) ? source.elapsedSeconds : 0,
+      timerStartedAt: Number.isFinite(source.timerStartedAt) ? source.timerStartedAt : 0,
+      archived: Boolean(source.archived),
       promotedAt: typeof source.promotedAt === 'string' ? source.promotedAt : '',
       spawned: Boolean(source.spawned),
       recurringParentId: typeof source.recurringParentId === 'string' ? source.recurringParentId : '',
@@ -134,7 +142,7 @@
   function visibleTasks() {
     const query = document.getElementById('search').value.trim().toLowerCase();
     const tag = document.getElementById('filter-tag').value;
-    return tasks.filter(task => (!query || task.text.toLowerCase().includes(query) || task.tags.some(t => String(t).toLowerCase().includes(query))) && (!tag || task.tags.includes(tag)));
+    return tasks.filter(task => !task.archived && (!query || task.text.toLowerCase().includes(query) || task.notes.toLowerCase().includes(query) || task.tags.some(t => String(t).toLowerCase().includes(query))) && (!tag || task.tags.includes(tag)));
   }
   function showToast(message, action) {
     undoAction = action;
@@ -144,10 +152,33 @@
     clearTimeout(showToast.timer);
     showToast.timer = setTimeout(() => { document.getElementById('toast').classList.remove('visible'); undoAction = null; }, 5000);
   }
+  function updateBulkControls() {
+    const active = selectedTaskIds.size > 0;
+    document.getElementById('bulk-move').hidden = !active;
+    document.getElementById('bulk-delete').hidden = !active;
+  }
+  function toggleTimer(id) {
+    const task = tasks.find(item => item.id === id);
+    if (!task) return;
+    if (task.timerStartedAt) {
+      task.elapsedSeconds += Math.max(0, Math.floor((Date.now() - task.timerStartedAt) / 1000));
+      task.timerStartedAt = 0;
+      activeTimers.delete(id);
+    } else {
+      task.timerStartedAt = Date.now();
+      activeTimers.set(id, true);
+    }
+    touchTask(task); save(); render(id);
+  }
+  function notifyDueTasks() {
+    const due = tasks.filter(task => !task.completed && !task.archived && task.dueDate && task.dueDate <= today());
+    if (!due.length || !('Notification' in window)) return;
+    if (Notification.permission === 'granted') new Notification('Eisenhower Matrix', { body: due.length + ' task' + (due.length === 1 ? '' : 's') + ' due today or overdue.' });
+  }
   function addTask(text, dueDate, tags) {
     const trimmed = text.trim();
     if (!trimmed) return null;
-    const task = { id: newId(), text: trimmed, quadrant: 'inbox', priority: document.getElementById('task-priority').value, dueDate, completed: false, completedAt: '', tags: tags.map(tag => tag.replace(/^#+/, '')), recurring: '', promotedAt: '', spawned: false, recurringParentId: '', recurringDay: dueDate ? Number(dueDate.slice(-2)) : 0, updatedAt: Date.now() };
+    const task = { id: newId(), text: trimmed, quadrant: 'inbox', priority: document.getElementById('task-priority').value, dueDate, completed: false, completedAt: '', notes: document.getElementById('new-task-notes').value.trim(), subtasks: [], elapsedSeconds: 0, timerStartedAt: 0, archived: false, tags: tags.map(tag => tag.replace(/^#+/, '')), recurring: '', promotedAt: '', spawned: false, recurringParentId: '', recurringDay: dueDate ? Number(dueDate.slice(-2)) : 0, updatedAt: Date.now() };
     tasks.push(task);
     save(); render();
     return task;
@@ -290,6 +321,10 @@
           const current = tasks.find(item => item.id === task.id);
           if (current) setCompleted(current, check.checked);
         });
+        const selectTask = document.createElement('input'); selectTask.type = 'checkbox'; selectTask.className = 'task-select'; selectTask.checked = selectedTaskIds.has(task.id); selectTask.setAttribute('aria-label', 'Select task: ' + task.text); selectTask.addEventListener('change', () => {
+          if (selectTask.checked) selectedTaskIds.add(task.id); else selectedTaskIds.delete(task.id);
+          updateBulkControls();
+        });
         const text = document.createElement('span'); text.className = 'task-text'; text.textContent = task.text;
         const beginEdit = () => {
           const current = tasks.find(item => item.id === task.id);
@@ -320,13 +355,14 @@
         text.addEventListener('dblclick', beginEdit);
         text.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); text.blur(); } if (e.key === 'Escape') { text.textContent = text.dataset.original || task.text; text.blur(); } });
         text.addEventListener('blur', finishEdit);
-        main.append(check, text);
+        main.append(selectTask, check, text);
         const actions = document.createElement('div'); actions.className = 'task-actions';
         const priority = makeSelect('task-priority', task.priority, [['low','Low'],['medium','Medium'],['high','High']], 'Sort priority for: ' + task.text); priority.addEventListener('change', () => updateTask(task, 'priority', priority.value, '.task-priority'));
         const move = makeSelect('task-move', task.quadrant, ZONES.map(zoneName => [zoneName, zoneNames[zoneName]]), 'Move to: ' + task.text); move.addEventListener('change', () => moveTask(task.id, move.value));
         const remove = document.createElement('button'); remove.className = 'task-remove'; remove.textContent = '\u00D7'; remove.title = 'Delete task'; remove.setAttribute('aria-label', 'Delete task'); remove.addEventListener('click', () => removeTask(task.id));
         const edit = document.createElement('button'); edit.className = 'task-edit'; edit.textContent = 'Edit'; edit.title = 'Edit task'; edit.setAttribute('aria-label', 'Edit task: ' + task.text); edit.addEventListener('click', beginEdit);
-        actions.append(priority, move, edit, remove);
+        const timer = document.createElement('button'); timer.className = 'task-edit timer-button'; timer.type = 'button'; timer.textContent = task.timerStartedAt ? 'Stop' : 'Timer'; timer.title = 'Track time'; timer.addEventListener('click', () => toggleTimer(task.id));
+        actions.append(priority, move, timer, edit, remove);
         const meta = document.createElement('div'); meta.className = 'task-meta' + (task.dueDate && task.dueDate < today() && !task.completed ? ' overdue' : '');
         if (task.dueDate) {
           const daysOverdue = Math.round((new Date(today() + 'T00:00:00') - new Date(task.dueDate + 'T00:00:00')) / 86400000);
@@ -336,7 +372,22 @@
         const tagsInput = document.createElement('input'); tagsInput.className = 'task-tags-input'; tagsInput.value = task.tags.join(', '); tagsInput.title = 'Tags'; tagsInput.setAttribute('aria-label', 'Tags for: ' + task.text); tagsInput.addEventListener('focusout', event => updateTask(task, 'tags', tagsInput.value.split(',').map(tag => tag.replace(/^#+/, '').trim().toLowerCase()).filter(Boolean), null, event)); meta.append(tagsInput);
         const due = document.createElement('input'); due.type = 'date'; due.className = 'task-date'; due.value = task.dueDate; due.title = 'Due date'; due.setAttribute('aria-label', 'Due date for: ' + task.text); due.addEventListener('focusout', event => updateTask(task, 'dueDate', due.value, null, event)); meta.append(due);
         const recurring = makeSelect('task-recurring', task.recurring, [['','Once'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']], 'Recurring for: ' + task.text); recurring.addEventListener('change', () => updateTask(task, 'recurring', recurring.value, '.task-recurring')); meta.append(recurring);
+        const notes = document.createElement('textarea'); notes.className = 'task-notes'; notes.value = task.notes; notes.placeholder = 'Notes'; notes.setAttribute('aria-label', 'Notes for: ' + task.text); notes.addEventListener('focusout', event => updateTask(task, 'notes', notes.value.trim(), null, event));
+        const subtasks = document.createElement('div'); subtasks.className = 'task-subtasks';
+        task.subtasks.forEach((subtask, index) => {
+          const row = document.createElement('label'); row.className = 'subtask-row';
+          const subcheck = document.createElement('input'); subcheck.type = 'checkbox'; subcheck.checked = subtask.completed; subcheck.addEventListener('change', () => { task.subtasks[index].completed = subcheck.checked; touchTask(task); save(); });
+          const subtext = document.createElement('span'); subtext.textContent = subtask.text; row.append(subcheck, subtext); subtasks.append(row);
+        });
+        const addSubtask = document.createElement('button'); addSubtask.type = 'button'; addSubtask.className = 'task-edit'; addSubtask.textContent = '+ checklist item'; addSubtask.addEventListener('click', () => {
+          const textValue = prompt('Checklist item');
+          if (!textValue || !textValue.trim()) return;
+          task.subtasks.push({ text: textValue.trim(), completed: false }); touchTask(task); save(); render(task.id);
+        });
+        subtasks.append(addSubtask);
         card.append(main, actions, meta);
+        card.append(notes);
+        card.append(subtasks);
         card.addEventListener('focusout', event => {
           if (!card.contains(event.relatedTarget) && card.dataset.dirty === 'true') {
             delete card.dataset.dirty;
@@ -357,6 +408,11 @@
     });
     const completedCount = tasks.filter(task => task.completed).length;
     document.getElementById('task-count').textContent = tasks.length + (tasks.length === 1 ? ' task' : ' tasks') + ' · ' + completedCount + ' completed';
+    const openCount = tasks.filter(task => !task.completed && !task.archived).length;
+    const percent = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
+    document.getElementById('progress-panel').innerHTML = '<strong>' + percent + '% complete</strong> · ' + completedCount + '/' + tasks.length + ' tasks done' +
+      '<div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percent + '"><div class="progress-fill" style="width:' + percent + '%"></div></div>';
+    updateBulkControls();
     updateTagFilter();
     if (activeId) {
       const activeCard = document.querySelector('.task[data-id="' + CSS.escape(activeId) + '"]');
@@ -388,7 +444,8 @@
     const completedThisWeek = tasks.filter(task => task.completedAt && (Date.now() - new Date(task.completedAt + 'T00:00:00').getTime()) < 7 * 86400000).length;
     const summary = document.createElement('strong');
     summary.setAttribute('aria-live', 'polite');
-    summary.textContent = 'Weekly review: ' + completedThisWeek + ' completed this week · ' + overdue + ' overdue. ';
+    const quadrantSummary = ZONES.slice(1).map(zone => zoneNames[zone] + ': ' + tasks.filter(item => item.quadrant === zone && !item.completed && !item.archived).length).join(' · ');
+    summary.textContent = 'Weekly review: ' + completedThisWeek + ' completed this week · ' + overdue + ' overdue · ' + quadrantSummary + '. ';
     panel.append(summary);
     if (!openTasks.length) {
       panel.append(document.createTextNode('All tasks are complete.'));
@@ -500,11 +557,41 @@
     } catch (error) { console.error('Could not import tasks:', error); showToast('Import failed: choose a valid task JSON file.'); }
     e.target.value = '';
   });
+  document.getElementById('bulk-toggle').addEventListener('click', e => {
+    document.body.classList.toggle('bulk-mode');
+    const enabled = document.body.classList.contains('bulk-mode');
+    e.currentTarget.setAttribute('aria-pressed', String(enabled));
+    e.currentTarget.textContent = enabled ? 'Done selecting' : 'Select';
+    if (!enabled) selectedTaskIds.clear();
+    updateBulkControls();
+  });
+  document.getElementById('bulk-move').addEventListener('click', () => {
+    const destination = prompt('Move selected tasks to: inbox, do, schedule, delegate, or delete');
+    if (!ZONES.includes(destination)) return;
+    tasks.forEach(task => { if (selectedTaskIds.has(task.id)) { task.quadrant = destination; touchTask(task); } });
+    selectedTaskIds.clear(); save(); render(); showToast('Selected tasks moved.');
+  });
+  document.getElementById('bulk-delete').addEventListener('click', () => {
+    const selected = tasks.filter(task => selectedTaskIds.has(task.id));
+    if (!selected.length) return;
+    selected.forEach(task => { task.archived = true; touchTask(task); });
+    selectedTaskIds.clear(); save(); render(); showToast(selected.length + ' task' + (selected.length === 1 ? '' : 's') + ' archived.');
+  });
+  document.getElementById('template-btn').addEventListener('click', () => {
+    const text = document.getElementById('new-task-text').value.trim();
+    if (!text) { showToast('Enter a task first to save a template.'); return; }
+    settings.templates = Array.isArray(settings.templates) ? settings.templates : [];
+    settings.templates.push({ text, priority: document.getElementById('task-priority').value, tags: document.getElementById('new-task-tags').value });
+    saveSettings(); showToast('Template saved.');
+  });
   document.getElementById('theme-toggle').addEventListener('click', () => { settings.light = !settings.light; document.body.classList.toggle('light', settings.light); document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme'; saveSettings(); });
   document.getElementById('review-toggle').addEventListener('click', () => {
     const panel = document.getElementById('review-panel'); panel.classList.toggle('visible'); renderReview();
   });
   document.getElementById('toast-undo').addEventListener('click', () => { if (undoAction) undoAction(); document.getElementById('toast').classList.remove('visible'); undoAction = null; });
+  document.getElementById('new-task-date').addEventListener('change', () => {
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(error => console.error('Could not request notification permission:', error));
+  });
   document.querySelector('.add-more-toggle').addEventListener('click', e => {
     const open = document.querySelector('.add-more').classList.toggle('open');
     e.currentTarget.setAttribute('aria-expanded', String(open));
@@ -535,6 +622,7 @@
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       promoteDueTasks();
+      notifyDueTasks();
       const activeCard = document.activeElement.closest?.('.task');
       if (!activeCard || !document.activeElement.matches('input, select, textarea')) render();
     }
