@@ -24,10 +24,21 @@
   <button id="bulk-toggle" type="button" aria-pressed="false">Select</button>
   <button id="bulk-move" type="button" hidden>Move selected</button>
   <button id="bulk-delete" type="button" hidden>Archive selected</button>
+  <select id="bulk-destination" aria-label="Destination for selected tasks" hidden>
+    <option value="">Move to...</option>
+    <option value="inbox">Inbox</option>
+    <option value="do">Do</option>
+    <option value="schedule">Schedule</option>
+    <option value="delegate">Delegate</option>
+    <option value="delete">Delete</option>
+  </select>
+  <button id="archive-toggle" type="button" aria-pressed="false">Archived</button>
   <details class="more-menu">
     <summary>More</summary>
     <div class="more-menu-items">
       <button id="export-btn" type="button">Export JSON</button>
+      <button id="export-markdown-btn" type="button">Export Markdown</button>
+      <button id="export-csv-btn" type="button">Export CSV</button>
       <button id="import-btn" type="button">Import JSON</button>
       <button id="template-btn" type="button">Save template</button>
       <button id="clear-completed" type="button">Clear completed</button>
@@ -118,8 +129,15 @@
 
 </div>
 
-<footer>Saved locally. Drag tasks, use Move to on touch, or focus a task: 1 Inbox · 2 Do · 3 Schedule · 4 Delegate · 5 Delete · Enter/F2 edit · Space complete · Delete remove. Press / to add a task.</footer>
+<footer>Saved locally. Press ? for keyboard shortcuts.</footer>
 <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="toast-undo" type="button">Undo</button></div>
+<dialog id="shortcuts-dialog">
+  <form method="dialog">
+    <h2>Keyboard shortcuts</h2>
+    <p><kbd>1</kbd>-<kbd>5</kbd> Move focused task · <kbd>Enter</kbd>/<kbd>F2</kbd> Edit · <kbd>Space</kbd> Complete · <kbd>Delete</kbd> Archive · <kbd>/</kbd> Add task · <kbd>?</kbd> Help</p>
+    <button>Close</button>
+  </form>
+</dialog>
 
 <script type="module" src="script.js"></script>
 

@@ -1,4 +1,6 @@
 
+'use strict';
+
   const STORAGE_KEY = 'eisenhower-matrix-tasks';
   const SETTINGS_KEY = 'eisenhower-matrix-settings';
   const ZONES = ['inbox', 'do', 'schedule', 'delegate', 'delete'];
@@ -12,6 +14,7 @@
   let pendingStorageSync = false;
   const selectedTaskIds = new Set();
   const activeTimers = new Map();
+  let timerInterval = null;
 
   function newId() {
     return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -131,6 +134,7 @@
       elapsedSeconds: Number.isFinite(source.elapsedSeconds) ? source.elapsedSeconds : 0,
       timerStartedAt: Number.isFinite(source.timerStartedAt) ? source.timerStartedAt : 0,
       archived: Boolean(source.archived),
+      order: Number.isFinite(source.order) ? source.order : 0,
       promotedAt: typeof source.promotedAt === 'string' ? source.promotedAt : '',
       spawned: Boolean(source.spawned),
       recurringParentId: typeof source.recurringParentId === 'string' ? source.recurringParentId : '',
@@ -142,7 +146,7 @@
   function visibleTasks() {
     const query = document.getElementById('search').value.trim().toLowerCase();
     const tag = document.getElementById('filter-tag').value;
-    return tasks.filter(task => !task.archived && (!query || task.text.toLowerCase().includes(query) || task.notes.toLowerCase().includes(query) || task.tags.some(t => String(t).toLowerCase().includes(query))) && (!tag || task.tags.includes(tag)));
+    return tasks.filter(task => (settings.showArchived ? task.archived : !task.archived) && (!query || task.text.toLowerCase().includes(query) || task.notes.toLowerCase().includes(query) || task.tags.some(t => String(t).toLowerCase().includes(query))) && (!tag || task.tags.includes(tag)));
   }
   function showToast(message, action) {
     undoAction = action;
@@ -156,6 +160,7 @@
     const active = selectedTaskIds.size > 0;
     document.getElementById('bulk-move').hidden = !active;
     document.getElementById('bulk-delete').hidden = !active;
+    document.getElementById('bulk-destination').hidden = !active;
   }
   function toggleTimer(id) {
     const task = tasks.find(item => item.id === id);
@@ -170,15 +175,51 @@
     }
     touchTask(task); save(); render(id);
   }
+  function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainder = seconds % 60;
+    return [hours, minutes, remainder].map(value => String(value).padStart(2, '0')).join(':');
+  }
+  function updateTimerDisplays() {
+    document.querySelectorAll('.timer-display[data-task-id]').forEach(display => {
+      const task = tasks.find(item => item.id === display.dataset.taskId);
+      if (!task) return;
+      const elapsed = task.elapsedSeconds + (task.timerStartedAt ? Math.floor((Date.now() - task.timerStartedAt) / 1000) : 0);
+      display.textContent = formatDuration(elapsed);
+    });
+  }
   function notifyDueTasks() {
     const due = tasks.filter(task => !task.completed && !task.archived && task.dueDate && task.dueDate <= today());
     if (!due.length || !('Notification' in window)) return;
     if (Notification.permission === 'granted') new Notification('Eisenhower Matrix', { body: due.length + ' task' + (due.length === 1 ? '' : 's') + ' due today or overdue.' });
   }
+  function renderProgress(activeTasks, completedCount) {
+    const panel = document.getElementById('progress-panel');
+    panel.replaceChildren();
+    if (!activeTasks.length) { panel.hidden = true; return; }
+    panel.hidden = false;
+    const overdue = activeTasks.filter(task => !task.completed && task.dueDate && task.dueDate < today()).length;
+    const dueToday = activeTasks.filter(task => !task.completed && task.dueDate === today()).length;
+    const percent = Math.round((completedCount / activeTasks.length) * 100);
+    const summary = document.createElement('strong');
+    summary.textContent = percent + '% complete · ' + completedCount + '/' + activeTasks.length + ' done · ' + dueToday + ' due today · ' + overdue + ' overdue';
+    const track = document.createElement('div');
+    track.className = 'progress-track';
+    track.setAttribute('role', 'progressbar');
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', '100');
+    track.setAttribute('aria-valuenow', String(percent));
+    const fill = document.createElement('div');
+    fill.className = 'progress-fill';
+    fill.style.width = percent + '%';
+    track.append(fill);
+    panel.append(summary, track);
+  }
   function addTask(text, dueDate, tags) {
     const trimmed = text.trim();
     if (!trimmed) return null;
-    const task = { id: newId(), text: trimmed, quadrant: 'inbox', priority: document.getElementById('task-priority').value, dueDate, completed: false, completedAt: '', notes: document.getElementById('new-task-notes').value.trim(), subtasks: [], elapsedSeconds: 0, timerStartedAt: 0, archived: false, tags: tags.map(tag => tag.replace(/^#+/, '')), recurring: '', promotedAt: '', spawned: false, recurringParentId: '', recurringDay: dueDate ? Number(dueDate.slice(-2)) : 0, updatedAt: Date.now() };
+    const task = { id: newId(), text: trimmed, quadrant: 'inbox', priority: document.getElementById('task-priority').value, dueDate, completed: false, completedAt: '', notes: document.getElementById('new-task-notes').value.trim(), subtasks: [], elapsedSeconds: 0, timerStartedAt: 0, archived: false, order: Date.now(), tags: tags.map(tag => tag.replace(/^#+/, '')), recurring: '', promotedAt: '', spawned: false, recurringParentId: '', recurringDay: dueDate ? Number(dueDate.slice(-2)) : 0, updatedAt: Date.now() };
     tasks.push(task);
     save(); render();
     return task;
@@ -309,11 +350,11 @@
         count.textContent = items.filter(task => !task.completed).length + ' / ' + items.length;
         count.title = count.textContent + ' shown; open / total';
       }
-      if (zone === 'do') document.querySelector('#q-do .overload-warning').classList.toggle('visible', tasks.filter(t => t.quadrant === 'do' && !t.completed).length > 5);
+      if (zone === 'do') document.querySelector('#q-do .overload-warning').classList.toggle('visible', tasks.filter(t => t.quadrant === 'do' && !t.completed && !t.archived).length > 5);
       if (!items.length) { const hint = document.createElement('div'); hint.className = 'empty-hint'; hint.textContent = zone === 'inbox' ? 'No tasks yet. Add one below.' : 'Move a task here to sort it.'; list.appendChild(hint); return; }
-      items.sort((a, b) => Number(a.completed) - Number(b.completed) || ({ high: 0, medium: 1, low: 2 }[a.priority] - { high: 0, medium: 1, low: 2 }[b.priority] || (a.dueDate || '9999').localeCompare(b.dueDate || '9999')));
+      items.sort((a, b) => Number(a.completed) - Number(b.completed) || (a.order || 0) - (b.order || 0) || ({ high: 0, medium: 1, low: 2 }[a.priority] - { high: 0, medium: 1, low: 2 }[b.priority] || (a.dueDate || '9999').localeCompare(b.dueDate || '9999')));
       items.forEach(task => {
-        const card = document.createElement('div'); card.className = 'task' + (task.completed ? ' completed' : '') + ' priority-' + task.priority; card.draggable = true; card.tabIndex = 0; card.dataset.id = task.id;
+        const card = document.createElement('div'); card.className = 'task collapsed' + (task.completed ? ' completed' : '') + (task.archived ? ' archived' : '') + ' priority-' + task.priority; card.draggable = true; card.tabIndex = 0; card.dataset.id = task.id;
         const main = document.createElement('div'); main.className = 'task-main';
         card.setAttribute('role', 'group');
         card.setAttribute('aria-label', 'Task: ' + task.text);
@@ -355,14 +396,20 @@
         text.addEventListener('dblclick', beginEdit);
         text.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); text.blur(); } if (e.key === 'Escape') { text.textContent = text.dataset.original || task.text; text.blur(); } });
         text.addEventListener('blur', finishEdit);
-        main.append(selectTask, check, text);
+        const priorityDot = document.createElement('span'); priorityDot.className = 'priority-dot priority-' + task.priority; priorityDot.title = task.priority + ' priority';
+        main.append(selectTask, check, priorityDot, text);
         const actions = document.createElement('div'); actions.className = 'task-actions';
         const priority = makeSelect('task-priority', task.priority, [['low','Low'],['medium','Medium'],['high','High']], 'Sort priority for: ' + task.text); priority.addEventListener('change', () => updateTask(task, 'priority', priority.value, '.task-priority'));
         const move = makeSelect('task-move', task.quadrant, ZONES.map(zoneName => [zoneName, zoneNames[zoneName]]), 'Move to: ' + task.text); move.addEventListener('change', () => moveTask(task.id, move.value));
         const remove = document.createElement('button'); remove.className = 'task-remove'; remove.textContent = '\u00D7'; remove.title = 'Delete task'; remove.setAttribute('aria-label', 'Delete task'); remove.addEventListener('click', () => removeTask(task.id));
         const edit = document.createElement('button'); edit.className = 'task-edit'; edit.textContent = 'Edit'; edit.title = 'Edit task'; edit.setAttribute('aria-label', 'Edit task: ' + task.text); edit.addEventListener('click', beginEdit);
-        const timer = document.createElement('button'); timer.className = 'task-edit timer-button'; timer.type = 'button'; timer.textContent = task.timerStartedAt ? 'Stop' : 'Timer'; timer.title = 'Track time'; timer.addEventListener('click', () => toggleTimer(task.id));
-        actions.append(priority, move, timer, edit, remove);
+        const timer = document.createElement('button'); timer.className = 'task-edit timer-button' + (task.timerStartedAt ? ' running' : ''); timer.type = 'button'; timer.textContent = task.timerStartedAt ? 'Stop' : 'Timer'; timer.title = 'Track time'; timer.addEventListener('click', () => toggleTimer(task.id));
+        const timerDisplay = document.createElement('span'); timerDisplay.className = 'timer-display'; timerDisplay.dataset.taskId = task.id; timerDisplay.textContent = formatDuration(task.elapsedSeconds + (task.timerStartedAt ? Math.floor((Date.now() - task.timerStartedAt) / 1000) : 0));
+        actions.append(timerDisplay, priority, move, timer, edit, remove);
+        if (task.archived) {
+          const restore = document.createElement('button'); restore.className = 'task-edit'; restore.textContent = 'Restore'; restore.addEventListener('click', () => { task.archived = false; touchTask(task); save(); render(); showToast('Task restored.'); });
+          actions.append(restore);
+        }
         const meta = document.createElement('div'); meta.className = 'task-meta' + (task.dueDate && task.dueDate < today() && !task.completed ? ' overdue' : '');
         if (task.dueDate) {
           const daysOverdue = Math.round((new Date(today() + 'T00:00:00') - new Date(task.dueDate + 'T00:00:00')) / 86400000);
@@ -379,15 +426,18 @@
           const subcheck = document.createElement('input'); subcheck.type = 'checkbox'; subcheck.checked = subtask.completed; subcheck.addEventListener('change', () => { task.subtasks[index].completed = subcheck.checked; touchTask(task); save(); });
           const subtext = document.createElement('span'); subtext.textContent = subtask.text; row.append(subcheck, subtext); subtasks.append(row);
         });
-        const addSubtask = document.createElement('button'); addSubtask.type = 'button'; addSubtask.className = 'task-edit'; addSubtask.textContent = '+ checklist item'; addSubtask.addEventListener('click', () => {
-          const textValue = prompt('Checklist item');
-          if (!textValue || !textValue.trim()) return;
-          task.subtasks.push({ text: textValue.trim(), completed: false }); touchTask(task); save(); render(task.id);
-        });
-        subtasks.append(addSubtask);
+        const subtaskForm = document.createElement('form'); subtaskForm.className = 'subtask-add';
+        const subtaskInput = document.createElement('input'); subtaskInput.type = 'text'; subtaskInput.placeholder = 'Add checklist item'; subtaskInput.setAttribute('aria-label', 'Add checklist item');
+        subtaskForm.append(subtaskInput);
+        subtaskForm.addEventListener('submit', event => { event.preventDefault(); if (!subtaskInput.value.trim()) return; task.subtasks.push({ text: subtaskInput.value.trim(), completed: false }); touchTask(task); save(); render(task.id); });
+        subtaskInput.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); subtaskInput.value = ''; subtaskInput.blur(); } });
+        subtasks.append(subtaskForm);
         card.append(main, actions, meta);
         card.append(notes);
         card.append(subtasks);
+        const expand = document.createElement('button'); expand.type = 'button'; expand.className = 'task-expand'; expand.textContent = 'Details'; expand.setAttribute('aria-expanded', 'false');
+        expand.addEventListener('click', event => { event.stopPropagation(); const expanded = card.classList.toggle('collapsed'); expand.textContent = expanded ? 'Details' : 'Hide'; expand.setAttribute('aria-expanded', String(!expanded)); });
+        card.append(expand);
         card.addEventListener('focusout', event => {
           if (!card.contains(event.relatedTarget) && card.dataset.dirty === 'true') {
             delete card.dataset.dirty;
@@ -396,6 +446,18 @@
         });
         card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', task.id); card.classList.add('dragging'); });
         card.addEventListener('dragend', () => card.classList.remove('dragging'));
+        card.addEventListener('click', event => {
+          if (event.target === card || event.target === text || event.target === priorityDot) {
+            const expanded = card.classList.toggle('collapsed');
+            expand.textContent = expanded ? 'Details' : 'Hide';
+            expand.setAttribute('aria-expanded', String(!expanded));
+          }
+        });
+        card.addEventListener('focus', () => {
+          card.classList.remove('collapsed');
+          expand.textContent = 'Hide';
+          expand.setAttribute('aria-expanded', 'true');
+        });
         card.addEventListener('keydown', e => {
           if (e.target !== card) return;
           if (['1', '2', '3', '4', '5'].includes(e.key)) moveTask(task.id, ZONES[Number(e.key) - 1]);
@@ -406,12 +468,10 @@
         list.appendChild(card);
       });
     });
-    const completedCount = tasks.filter(task => task.completed).length;
-    document.getElementById('task-count').textContent = tasks.length + (tasks.length === 1 ? ' task' : ' tasks') + ' · ' + completedCount + ' completed';
-    const openCount = tasks.filter(task => !task.completed && !task.archived).length;
-    const percent = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
-    document.getElementById('progress-panel').innerHTML = '<strong>' + percent + '% complete</strong> · ' + completedCount + '/' + tasks.length + ' tasks done' +
-      '<div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percent + '"><div class="progress-fill" style="width:' + percent + '%"></div></div>';
+    const activeTasks = tasks.filter(task => !task.archived);
+    const completedCount = activeTasks.filter(task => task.completed).length;
+    document.getElementById('task-count').textContent = activeTasks.length + (activeTasks.length === 1 ? ' task' : ' tasks') + ' · ' + completedCount + ' completed';
+    renderProgress(activeTasks, completedCount);
     updateBulkControls();
     updateTagFilter();
     if (activeId) {
@@ -427,9 +487,24 @@
     [...new Set(tasks.flatMap(task => task.tags))].sort().forEach(tag => select.add(new Option('#' + tag, tag)));
     select.value = current;
   }
-  function exportTasks() {
-    const blob = new Blob([JSON.stringify({ version: 1, tasks }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.download = 'eisenhower-tasks.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  function downloadFile(content, filename, type) {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function exportTasks(format = 'json') {
+    const active = tasks.filter(task => !task.archived);
+    if (format === 'markdown') {
+      downloadFile(active.map(task => '- [' + (task.completed ? 'x' : ' ') + '] ' + task.text + ' (' + zoneNames[task.quadrant] + ')').join('\n'), 'eisenhower-tasks.md', 'text/markdown');
+      return;
+    }
+    if (format === 'csv') {
+      const escape = value => '"' + String(value).replace(/"/g, '""') + '"';
+      const rows = [['Text', 'Quadrant', 'Priority', 'Due date', 'Completed', 'Tags', 'Notes'], ...active.map(task => [task.text, task.quadrant, task.priority, task.dueDate, task.completed, task.tags.join(', '), task.notes])];
+      downloadFile(rows.map(row => row.map(escape).join(',')).join('\n'), 'eisenhower-tasks.csv', 'text/csv');
+      return;
+    }
+    downloadFile(JSON.stringify({ version: 1, tasks }, null, 2), 'eisenhower-tasks.json', 'application/json');
   }
   function renderReview(restoreFocus = false) {
     const panel = document.getElementById('review-panel');
@@ -484,6 +559,24 @@
       e.preventDefault();
       zone.classList.add('drag-over');
     });
+    document.querySelectorAll('.task-list').forEach(list => {
+      list.addEventListener('dragover', event => {
+        if (event.dataTransfer.types.includes('text/plain')) event.preventDefault();
+      });
+      list.addEventListener('drop', event => {
+        const id = event.dataTransfer.getData('text/plain');
+        const task = tasks.find(item => item.id === id);
+        if (!task) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const cards = [...list.querySelectorAll('.task')].filter(card => card.dataset.id !== id);
+        const target = cards.find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
+        const targetTask = target && tasks.find(item => item.id === target.dataset.id);
+        task.quadrant = list.id.replace('list-', '');
+        task.order = targetTask ? targetTask.order - 1 : Date.now();
+        touchTask(task); save(); render();
+      });
+    });
     zone.addEventListener('drop', e => {
       const id = e.dataTransfer.getData('text/plain');
       if (!tasks.some(task => task.id === id)) return;
@@ -530,6 +623,8 @@
     });
   });
   document.getElementById('export-btn').addEventListener('click', exportTasks);
+  document.getElementById('export-markdown-btn').addEventListener('click', () => exportTasks('markdown'));
+  document.getElementById('export-csv-btn').addEventListener('click', () => exportTasks('csv'));
   document.getElementById('import-btn').addEventListener('click', () => document.getElementById('import-input').click());
   document.getElementById('import-input').addEventListener('change', async e => {
     try {
@@ -566,16 +661,22 @@
     updateBulkControls();
   });
   document.getElementById('bulk-move').addEventListener('click', () => {
-    const destination = prompt('Move selected tasks to: inbox, do, schedule, delegate, or delete');
-    if (!ZONES.includes(destination)) return;
+    const destination = document.getElementById('bulk-destination').value;
+    if (!ZONES.includes(destination)) { showToast('Choose a destination first.'); return; }
     tasks.forEach(task => { if (selectedTaskIds.has(task.id)) { task.quadrant = destination; touchTask(task); } });
-    selectedTaskIds.clear(); save(); render(); showToast('Selected tasks moved.');
+    selectedTaskIds.clear(); document.getElementById('bulk-destination').value = ''; save(); render(); showToast('Selected tasks moved.');
   });
   document.getElementById('bulk-delete').addEventListener('click', () => {
     const selected = tasks.filter(task => selectedTaskIds.has(task.id));
     if (!selected.length) return;
     selected.forEach(task => { task.archived = true; touchTask(task); });
     selectedTaskIds.clear(); save(); render(); showToast(selected.length + ' task' + (selected.length === 1 ? '' : 's') + ' archived.');
+  });
+  document.getElementById('archive-toggle').addEventListener('click', event => {
+    settings.showArchived = !settings.showArchived;
+    event.currentTarget.setAttribute('aria-pressed', String(settings.showArchived));
+    event.currentTarget.textContent = settings.showArchived ? 'Active tasks' : 'Archived';
+    saveSettings(); render();
   });
   document.getElementById('template-btn').addEventListener('click', () => {
     const text = document.getElementById('new-task-text').value.trim();
@@ -627,7 +728,11 @@
       if (!activeCard || !document.activeElement.matches('input, select, textarea')) render();
     }
   });
-  document.addEventListener('keydown', e => { if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'SELECT' && !document.activeElement.isContentEditable) { e.preventDefault(); document.querySelector('.add-row input').focus(); } });
+  document.addEventListener('keydown', e => {
+    const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
+    if (e.key === '?' && !typing) { e.preventDefault(); document.getElementById('shortcuts-dialog').showModal(); }
+    if (e.key === '/' && !typing) { e.preventDefault(); document.querySelector('.add-row input').focus(); }
+  });
   const systemTheme = window.matchMedia('(prefers-color-scheme: light)');
   systemTheme.addEventListener?.('change', event => {
     let hasExplicitTheme = false;
@@ -643,4 +748,7 @@
   if (typeof settings.light !== 'boolean') settings.light = window.matchMedia('(prefers-color-scheme: light)').matches;
   document.body.classList.toggle('light', Boolean(settings.light));
   document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme';
+  document.getElementById('archive-toggle').textContent = settings.showArchived ? 'Active tasks' : 'Archived';
+  document.getElementById('archive-toggle').setAttribute('aria-pressed', String(Boolean(settings.showArchived)));
+  timerInterval = setInterval(updateTimerDisplays, 1000);
   render();
