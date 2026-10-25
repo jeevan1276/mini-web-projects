@@ -1,6 +1,4 @@
 
-'use strict';
-
   const STORAGE_KEY = 'eisenhower-matrix-tasks';
   const SETTINGS_KEY = 'eisenhower-matrix-settings';
   const ZONES = ['inbox', 'do', 'schedule', 'delegate', 'delete'];
@@ -93,6 +91,8 @@
         deletedIds: [...deletedAt].map(([id, at]) => ({ id, at }))
       }));
       tasks = mergedTasks;
+      const lastSaved = document.getElementById('last-saved');
+      if (lastSaved) lastSaved.textContent = '· Last saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
     catch (error) { console.error('Could not save tasks:', error); showToast('Could not save changes in this browser.'); }
   }
@@ -416,9 +416,12 @@
           meta.append(document.createTextNode(daysOverdue > 0 && !task.completed ? daysOverdue + ' day' + (daysOverdue === 1 ? '' : 's') + ' overdue' : 'Due: ' + formatDueDate(task.dueDate)));
         }
         task.tags.forEach(tag => { const tagEl = document.createElement('span'); tagEl.className = 'task-tag'; tagEl.textContent = '#' + tag; meta.append(tagEl); });
-        const tagsInput = document.createElement('input'); tagsInput.className = 'task-tags-input'; tagsInput.value = task.tags.join(', '); tagsInput.title = 'Tags'; tagsInput.setAttribute('aria-label', 'Tags for: ' + task.text); tagsInput.addEventListener('focusout', event => updateTask(task, 'tags', tagsInput.value.split(',').map(tag => tag.replace(/^#+/, '').trim().toLowerCase()).filter(Boolean), null, event)); meta.append(tagsInput);
-        const due = document.createElement('input'); due.type = 'date'; due.className = 'task-date'; due.value = task.dueDate; due.title = 'Due date'; due.setAttribute('aria-label', 'Due date for: ' + task.text); due.addEventListener('focusout', event => updateTask(task, 'dueDate', due.value, null, event)); meta.append(due);
+        const tagsInput = document.createElement('input'); tagsInput.className = 'task-tags-input'; tagsInput.value = task.tags.join(', '); tagsInput.title = 'Tags'; tagsInput.setAttribute('aria-label', 'Tags for: ' + task.text); tagsInput.addEventListener('focusout', event => updateTask(task, 'tags', tagsInput.value.split(',').map(tag => tag.replace(/^#+/, '').trim().toLowerCase()).filter(Boolean), null, event));
+        const due = document.createElement('input'); due.type = 'date'; due.className = 'task-date'; due.value = task.dueDate; due.title = 'Due date'; due.setAttribute('aria-label', 'Due date for: ' + task.text); due.addEventListener('focusout', event => updateTask(task, 'dueDate', due.value, null, event));
+        if (task.tags.length) meta.append(tagsInput);
+        if (task.dueDate) meta.append(due);
         const recurring = makeSelect('task-recurring', task.recurring, [['','Once'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']], 'Recurring for: ' + task.text); recurring.addEventListener('change', () => updateTask(task, 'recurring', recurring.value, '.task-recurring')); meta.append(recurring);
+        if (!task.recurring) recurring.remove();
         const notes = document.createElement('textarea'); notes.className = 'task-notes'; notes.value = task.notes; notes.placeholder = 'Notes'; notes.setAttribute('aria-label', 'Notes for: ' + task.text); notes.addEventListener('focusout', event => updateTask(task, 'notes', notes.value.trim(), null, event));
         const subtasks = document.createElement('div'); subtasks.className = 'task-subtasks';
         task.subtasks.forEach((subtask, index) => {
@@ -432,12 +435,46 @@
         subtaskForm.addEventListener('submit', event => { event.preventDefault(); if (!subtaskInput.value.trim()) return; task.subtasks.push({ text: subtaskInput.value.trim(), completed: false }); touchTask(task); save(); render(task.id); });
         subtaskInput.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); subtaskInput.value = ''; subtaskInput.blur(); } });
         subtasks.append(subtaskForm);
-        card.append(main, actions, meta);
-        card.append(notes);
-        card.append(subtasks);
         const expand = document.createElement('button'); expand.type = 'button'; expand.className = 'task-expand'; expand.textContent = 'Details'; expand.setAttribute('aria-expanded', 'false');
-        expand.addEventListener('click', event => { event.stopPropagation(); const expanded = card.classList.toggle('collapsed'); expand.textContent = expanded ? 'Details' : 'Hide'; expand.setAttribute('aria-expanded', String(!expanded)); });
-        card.append(expand);
+        const setExpanded = expanded => {
+          card.classList.toggle('collapsed', !expanded);
+          expand.textContent = expanded ? 'Hide' : 'Details';
+          expand.setAttribute('aria-expanded', String(expanded));
+        };
+        expand.addEventListener('click', event => { event.stopPropagation(); setExpanded(card.classList.contains('collapsed')); });
+        const notesButton = document.createElement('button');
+        notesButton.type = 'button';
+        notesButton.className = 'task-edit';
+        notesButton.textContent = task.notes ? 'Notes' : '+ Notes';
+        notesButton.addEventListener('click', () => {
+          setExpanded(true);
+          if (!notes.isConnected) card.append(notes);
+          notes.focus();
+        });
+        const checklistButton = document.createElement('button');
+        checklistButton.type = 'button';
+        checklistButton.className = 'task-edit';
+        checklistButton.textContent = task.subtasks.length ? 'Checklist' : '+ Checklist';
+        checklistButton.addEventListener('click', () => {
+          setExpanded(true);
+          if (!subtasks.isConnected) card.append(subtasks);
+          subtaskInput.focus();
+        });
+        actions.append(notesButton, checklistButton);
+        const repeatButton = document.createElement('button');
+        repeatButton.type = 'button';
+        repeatButton.className = 'task-edit';
+        repeatButton.textContent = task.recurring ? 'Repeat' : '+ Repeat';
+        repeatButton.addEventListener('click', () => {
+          setExpanded(true);
+          if (!recurring.isConnected) meta.append(recurring);
+          recurring.focus();
+        });
+        actions.append(repeatButton);
+        main.append(expand);
+        card.append(main, actions, meta);
+        if (task.notes) card.append(notes);
+        if (task.subtasks.length) card.append(subtasks);
         card.addEventListener('focusout', event => {
           if (!card.contains(event.relatedTarget) && card.dataset.dirty === 'true') {
             delete card.dataset.dirty;
@@ -448,15 +485,8 @@
         card.addEventListener('dragend', () => card.classList.remove('dragging'));
         card.addEventListener('click', event => {
           if (event.target === card || event.target === text || event.target === priorityDot) {
-            const expanded = card.classList.toggle('collapsed');
-            expand.textContent = expanded ? 'Details' : 'Hide';
-            expand.setAttribute('aria-expanded', String(!expanded));
+            setExpanded(card.classList.contains('collapsed'));
           }
-        });
-        card.addEventListener('focus', () => {
-          card.classList.remove('collapsed');
-          expand.textContent = 'Hide';
-          expand.setAttribute('aria-expanded', 'true');
         });
         card.addEventListener('keydown', e => {
           if (e.target !== card) return;
@@ -466,6 +496,26 @@
           if (e.key === 'Delete') removeTask(task.id);
         });
         list.appendChild(card);
+      });
+    });
+    document.querySelectorAll('.task-list').forEach(list => {
+      list.addEventListener('dragover', event => {
+        if (event.dataTransfer.types.includes('text/plain')) event.preventDefault();
+      });
+      list.addEventListener('drop', event => {
+        const id = event.dataTransfer.getData('text/plain');
+        const task = tasks.find(item => item.id === id);
+        if (!task) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const cards = [...list.querySelectorAll('.task')].filter(card => card.dataset.id !== id);
+        const target = cards.find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
+        const targetTask = target && tasks.find(item => item.id === target.dataset.id);
+        task.quadrant = list.id.replace('list-', '');
+        task.order = targetTask ? targetTask.order - 1 : Date.now();
+        touchTask(task);
+        save();
+        render();
       });
     });
     const activeTasks = tasks.filter(task => !task.archived);
@@ -493,14 +543,14 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function exportTasks(format = 'json') {
-    const active = tasks.filter(task => !task.archived);
+    const exportable = tasks;
     if (format === 'markdown') {
-      downloadFile(active.map(task => '- [' + (task.completed ? 'x' : ' ') + '] ' + task.text + ' (' + zoneNames[task.quadrant] + ')').join('\n'), 'eisenhower-tasks.md', 'text/markdown');
+      downloadFile(exportable.map(task => '- [' + (task.completed ? 'x' : ' ') + '] ' + task.text + ' (' + zoneNames[task.quadrant] + (task.archived ? ', archived' : '') + ')').join('\n'), 'eisenhower-tasks.md', 'text/markdown');
       return;
     }
     if (format === 'csv') {
       const escape = value => '"' + String(value).replace(/"/g, '""') + '"';
-      const rows = [['Text', 'Quadrant', 'Priority', 'Due date', 'Completed', 'Tags', 'Notes'], ...active.map(task => [task.text, task.quadrant, task.priority, task.dueDate, task.completed, task.tags.join(', '), task.notes])];
+      const rows = [['Text', 'Quadrant', 'Priority', 'Due date', 'Completed', 'Archived', 'Tags', 'Notes'], ...exportable.map(task => [task.text, task.quadrant, task.priority, task.dueDate, task.completed, task.archived, task.tags.join(', '), task.notes])];
       downloadFile(rows.map(row => row.map(escape).join(',')).join('\n'), 'eisenhower-tasks.csv', 'text/csv');
       return;
     }
@@ -510,7 +560,7 @@
     const panel = document.getElementById('review-panel');
     if (!panel.classList.contains('visible')) return;
     panel.replaceChildren();
-    const openTasks = tasks.filter(task => !task.completed).sort((a, b) =>
+    const openTasks = tasks.filter(task => !task.completed && !task.archived).sort((a, b) =>
       Number(b.quadrant === 'inbox') - Number(a.quadrant === 'inbox') ||
       Number(Boolean(b.dueDate && b.dueDate < today())) - Number(Boolean(a.dueDate && a.dueDate < today())) ||
       (a.dueDate || '9999').localeCompare(b.dueDate || '9999')
@@ -558,24 +608,6 @@
       if (!e.dataTransfer.types.includes('text/plain')) return;
       e.preventDefault();
       zone.classList.add('drag-over');
-    });
-    document.querySelectorAll('.task-list').forEach(list => {
-      list.addEventListener('dragover', event => {
-        if (event.dataTransfer.types.includes('text/plain')) event.preventDefault();
-      });
-      list.addEventListener('drop', event => {
-        const id = event.dataTransfer.getData('text/plain');
-        const task = tasks.find(item => item.id === id);
-        if (!task) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const cards = [...list.querySelectorAll('.task')].filter(card => card.dataset.id !== id);
-        const target = cards.find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
-        const targetTask = target && tasks.find(item => item.id === target.dataset.id);
-        task.quadrant = list.id.replace('list-', '');
-        task.order = targetTask ? targetTask.order - 1 : Date.now();
-        touchTask(task); save(); render();
-      });
     });
     zone.addEventListener('drop', e => {
       const id = e.dataTransfer.getData('text/plain');
@@ -664,7 +696,7 @@
     const destination = document.getElementById('bulk-destination').value;
     if (!ZONES.includes(destination)) { showToast('Choose a destination first.'); return; }
     tasks.forEach(task => { if (selectedTaskIds.has(task.id)) { task.quadrant = destination; touchTask(task); } });
-    selectedTaskIds.clear(); document.getElementById('bulk-destination').value = ''; save(); render(); showToast('Selected tasks moved.');
+    selectedTaskIds.clear();     save(); render(); showToast('Selected tasks moved.');
   });
   document.getElementById('bulk-delete').addEventListener('click', () => {
     const selected = tasks.filter(task => selectedTaskIds.has(task.id));
@@ -730,7 +762,8 @@
   });
   document.addEventListener('keydown', e => {
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
-    if (e.key === '?' && !typing) { e.preventDefault(); document.getElementById('shortcuts-dialog').showModal(); }
+    const focusedTask = document.activeElement.closest?.('.task');
+    if (e.key === '?' && !typing && !focusedTask) { e.preventDefault(); document.getElementById('shortcuts-dialog').showModal(); }
     if (e.key === '/' && !typing) { e.preventDefault(); document.querySelector('.add-row input').focus(); }
   });
   const systemTheme = window.matchMedia('(prefers-color-scheme: light)');
