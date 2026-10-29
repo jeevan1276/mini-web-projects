@@ -34,7 +34,7 @@
   </select>
   <button id="archive-toggle" type="button" aria-pressed="false">Archived</button>
   <details class="more-menu">
-    <summary>More</summary>
+    <summary aria-label="More actions">More</summary>
     <div class="more-menu-items">
       <button id="export-btn" type="button">Export JSON</button>
       <button id="export-markdown-btn" type="button">Export Markdown</button>
@@ -45,10 +45,10 @@
     </div>
   </details>
   <input id="import-input" type="file" accept="application/json" hidden />
-  <button id="theme-toggle" type="button">Light theme</button>
+  <button id="theme-toggle" type="button">☀️ Light theme</button>
   <button id="review-toggle" type="button">Weekly review</button>
 </div>
-<div class="progress-panel" id="progress-panel" aria-live="polite"></div>
+<div class="progress-panel" id="progress-panel" aria-live="polite" hidden></div>
 <div class="review-panel" id="review-panel"></div>
 
 <div class="layout">
@@ -61,8 +61,8 @@
     <div class="task-list" id="list-inbox"></div>
     <form class="add-row" data-quadrant="inbox">
       <input id="new-task-text" name="text" type="text" placeholder="Add a task..." />
-      <button type="button" class="add-more-toggle" aria-expanded="false">More</button>
-      <div class="add-more">
+      <button type="button" class="add-more-toggle" aria-expanded="false" aria-controls="add-more-options">More options</button>
+      <div class="add-more" id="add-more-options">
         <select id="task-priority" aria-label="Sort priority">
         <option value="medium">Medium</option>
         <option value="low">Low</option>
@@ -88,7 +88,7 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Do</span>
           <span class="quadrant-tag">urgent + important</span>
-          <span class="quadrant-count">0</span>
+          <span class="quadrant-count">0 / 0</span>
         </div>
         <div class="quadrant-desc">Handle now, yourself.</div>
         <div class="overload-warning">Do is overloaded. Consider scheduling or delegating something.</div>
@@ -99,7 +99,7 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Schedule</span>
           <span class="quadrant-tag">not urgent + important</span>
-          <span class="quadrant-count">0</span>
+          <span class="quadrant-count">0 / 0</span>
         </div>
         <div class="quadrant-desc">Block time for this. It matters most long-term.</div>
         <div class="task-list" id="list-schedule"></div>
@@ -109,7 +109,7 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Delegate</span>
           <span class="quadrant-tag">urgent + not important</span>
-          <span class="quadrant-count">0</span>
+          <span class="quadrant-count">0 / 0</span>
         </div>
         <div class="quadrant-desc">Hand it off if you can.</div>
         <div class="task-list" id="list-delegate"></div>
@@ -119,7 +119,7 @@
         <div class="quadrant-head">
           <span class="quadrant-title">Delete</span>
           <span class="quadrant-tag">not urgent + not important</span>
-          <span class="quadrant-count">0</span>
+          <span class="quadrant-count">0 / 0</span>
         </div>
         <div class="quadrant-desc">Cut it. It's not worth your time.</div>
         <div class="task-list" id="list-delete"></div>

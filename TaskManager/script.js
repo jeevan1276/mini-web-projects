@@ -3,6 +3,11 @@
   const SETTINGS_KEY = 'eisenhower-matrix-settings';
   const ZONES = ['inbox', 'do', 'schedule', 'delegate', 'delete'];
   const zoneNames = { inbox: 'Inbox', do: 'Do', schedule: 'Schedule', delegate: 'Delegate', delete: 'Delete' };
+  const DELETED_TASK_RETENTION_MS = 30 * 86400000;
+  const TOAST_DURATION_MS = 5000;
+  const DO_OVERLOAD_LIMIT = 5;
+  let idCounter = 0;
+  let toastTimer = null;
   let deletedIds = new Set();
   let deletedAt = new Map();
   let tasks = loadTasks();
@@ -11,16 +16,17 @@
   let reviewIndex = 0;
   let pendingStorageSync = false;
   const selectedTaskIds = new Set();
-  const activeTimers = new Map();
   let timerInterval = null;
 
   function newId() {
-    return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    idCounter++;
+    return Date.now().toString(36) + '-' + idCounter.toString(36) + '-' + Math.random().toString(36).slice(2);
   }
   function loadTasks() {
     try {
       const stored = readStore();
-      const cutoff = Date.now() - 30 * 86400000;
+      const cutoff = Date.now() - DELETED_TASK_RETENTION_MS;
       deletedAt = new Map();
       (Array.isArray(stored?.deletedIds) ? stored.deletedIds : []).forEach(entry => {
         const id = typeof entry === 'string' ? entry : entry?.id;
@@ -67,7 +73,7 @@
     try {
       const stored = readStore();
       const storedTasks = unwrapTasks(stored) || [];
-      const cutoff = Date.now() - 30 * 86400000;
+      const cutoff = Date.now() - DELETED_TASK_RETENTION_MS;
       const storedDeleted = Array.isArray(stored?.deletedIds) ? stored.deletedIds : [];
       storedDeleted.forEach(entry => {
         const id = typeof entry === 'string' ? entry : entry?.id;
@@ -153,8 +159,8 @@
     document.getElementById('toast-message').textContent = message;
     document.getElementById('toast-undo').hidden = typeof action !== 'function';
     document.getElementById('toast').classList.add('visible');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => { document.getElementById('toast').classList.remove('visible'); undoAction = null; }, 5000);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { document.getElementById('toast').classList.remove('visible'); undoAction = null; }, TOAST_DURATION_MS);
   }
   function updateBulkControls() {
     const active = selectedTaskIds.size > 0;
@@ -168,12 +174,12 @@
     if (task.timerStartedAt) {
       task.elapsedSeconds += Math.max(0, Math.floor((Date.now() - task.timerStartedAt) / 1000));
       task.timerStartedAt = 0;
-      activeTimers.delete(id);
     } else {
       task.timerStartedAt = Date.now();
-      activeTimers.set(id, true);
     }
-    touchTask(task); save(); render(id);
+    touchTask(task); save();
+    updateTimerInterval();
+    render(id);
   }
   function formatDuration(seconds) {
     const hours = Math.floor(seconds / 3600);
@@ -188,6 +194,14 @@
       const elapsed = task.elapsedSeconds + (task.timerStartedAt ? Math.floor((Date.now() - task.timerStartedAt) / 1000) : 0);
       display.textContent = formatDuration(elapsed);
     });
+  }
+  function updateTimerInterval() {
+    const hasActiveTimer = tasks.some(task => task.timerStartedAt);
+    if (hasActiveTimer && !timerInterval) timerInterval = setInterval(updateTimerDisplays, 1000);
+    if (!hasActiveTimer && timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
   }
   function notifyDueTasks() {
     const due = tasks.filter(task => !task.completed && !task.archived && task.dueDate && task.dueDate <= today());
@@ -215,6 +229,9 @@
     fill.style.width = percent + '%';
     track.append(fill);
     panel.append(summary, track);
+  }
+  function updateThemeButton() {
+    document.getElementById('theme-toggle').textContent = settings.light ? '🌙 Dark theme' : '☀️ Light theme';
   }
   function addTask(text, dueDate, tags) {
     const trimmed = text.trim();
@@ -350,8 +367,21 @@
         count.textContent = items.filter(task => !task.completed).length + ' / ' + items.length;
         count.title = count.textContent + ' shown; open / total';
       }
-      if (zone === 'do') document.querySelector('#q-do .overload-warning').classList.toggle('visible', tasks.filter(t => t.quadrant === 'do' && !t.completed && !t.archived).length > 5);
-      if (!items.length) { const hint = document.createElement('div'); hint.className = 'empty-hint'; hint.textContent = zone === 'inbox' ? 'No tasks yet. Add one below.' : 'Move a task here to sort it.'; list.appendChild(hint); return; }
+      if (zone === 'do') document.querySelector('#q-do .overload-warning').classList.toggle('visible', tasks.filter(t => t.quadrant === 'do' && !t.completed && !t.archived).length > DO_OVERLOAD_LIMIT);
+      if (!items.length) {
+        const emptyHints = {
+          inbox: 'No tasks yet. Add one below.',
+          do: 'Drop urgent tasks here to tackle right away.',
+          schedule: 'Plan important work for later.',
+          delegate: 'Identify tasks to hand off.',
+          delete: 'Let go of distractions.'
+        };
+        const hint = document.createElement('div');
+        hint.className = 'empty-hint';
+        hint.textContent = emptyHints[zone];
+        list.appendChild(hint);
+        return;
+      }
       items.sort((a, b) => Number(a.completed) - Number(b.completed) || (a.order || 0) - (b.order || 0) || ({ high: 0, medium: 1, low: 2 }[a.priority] - { high: 0, medium: 1, low: 2 }[b.priority] || (a.dueDate || '9999').localeCompare(b.dueDate || '9999')));
       items.forEach(task => {
         const card = document.createElement('div'); card.className = 'task collapsed' + (task.completed ? ' completed' : '') + (task.archived ? ' archived' : '') + ' priority-' + task.priority; card.draggable = true; card.tabIndex = 0; card.dataset.id = task.id;
@@ -396,7 +426,7 @@
         text.addEventListener('dblclick', beginEdit);
         text.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); text.blur(); } if (e.key === 'Escape') { text.textContent = text.dataset.original || task.text; text.blur(); } });
         text.addEventListener('blur', finishEdit);
-        const priorityDot = document.createElement('span'); priorityDot.className = 'priority-dot priority-' + task.priority; priorityDot.title = task.priority + ' priority';
+        const priorityDot = document.createElement('span'); priorityDot.className = 'priority-dot priority-' + task.priority; priorityDot.title = task.priority + ' priority'; priorityDot.setAttribute('aria-label', task.priority + ' priority');
         main.append(selectTask, check, priorityDot, text);
         const actions = document.createElement('div'); actions.className = 'task-actions';
         const priority = makeSelect('task-priority', task.priority, [['low','Low'],['medium','Medium'],['high','High']], 'Sort priority for: ' + task.text); priority.addEventListener('change', () => updateTask(task, 'priority', priority.value, '.task-priority'));
@@ -498,29 +528,10 @@
         list.appendChild(card);
       });
     });
-    document.querySelectorAll('.task-list').forEach(list => {
-      list.addEventListener('dragover', event => {
-        if (event.dataTransfer.types.includes('text/plain')) event.preventDefault();
-      });
-      list.addEventListener('drop', event => {
-        const id = event.dataTransfer.getData('text/plain');
-        const task = tasks.find(item => item.id === id);
-        if (!task) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const cards = [...list.querySelectorAll('.task')].filter(card => card.dataset.id !== id);
-        const target = cards.find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
-        const targetTask = target && tasks.find(item => item.id === target.dataset.id);
-        task.quadrant = list.id.replace('list-', '');
-        task.order = targetTask ? targetTask.order - 1 : Date.now();
-        touchTask(task);
-        save();
-        render();
-      });
-    });
     const activeTasks = tasks.filter(task => !task.archived);
     const completedCount = activeTasks.filter(task => task.completed).length;
     document.getElementById('task-count').textContent = activeTasks.length + (activeTasks.length === 1 ? ' task' : ' tasks') + ' · ' + completedCount + ' completed';
+    document.title = '(' + (activeTasks.length - completedCount) + ') Eisenhower Matrix';
     renderProgress(activeTasks, completedCount);
     updateBulkControls();
     updateTagFilter();
@@ -529,6 +540,7 @@
       const focusTarget = focusSelector && activeCard ? activeCard.querySelector(focusSelector) : activeCard;
       if (focusTarget) focusTarget.focus();
     }
+    updateTimerInterval();
     if (document.getElementById('review-panel').classList.contains('visible')) renderReview(restoreReviewFocus);
   }
   function updateTagFilter() {
@@ -545,11 +557,16 @@
   function exportTasks(format = 'json') {
     const exportable = tasks;
     if (format === 'markdown') {
-      downloadFile(exportable.map(task => '- [' + (task.completed ? 'x' : ' ') + '] ' + task.text + ' (' + zoneNames[task.quadrant] + (task.archived ? ', archived' : '') + ')').join('\n'), 'eisenhower-tasks.md', 'text/markdown');
+      const escapeMarkdown = value => String(value).replace(/[\\[\]]/g, '\\$&');
+      downloadFile(exportable.map(task => '- [' + (task.completed ? 'x' : ' ') + '] ' + escapeMarkdown(task.text) + ' (' + zoneNames[task.quadrant] + (task.archived ? ', archived' : '') + ')').join('\n'), 'eisenhower-tasks.md', 'text/markdown');
       return;
     }
     if (format === 'csv') {
-      const escape = value => '"' + String(value).replace(/"/g, '""') + '"';
+      const escape = value => {
+        const text = String(value);
+        const safeText = /^[=+\-@]/.test(text) ? "'" + text : text;
+        return '"' + safeText.replace(/"/g, '""') + '"';
+      };
       const rows = [['Text', 'Quadrant', 'Priority', 'Due date', 'Completed', 'Archived', 'Tags', 'Notes'], ...exportable.map(task => [task.text, task.quadrant, task.priority, task.dueDate, task.completed, task.archived, task.tags.join(', '), task.notes])];
       downloadFile(rows.map(row => row.map(escape).join(',')).join('\n'), 'eisenhower-tasks.csv', 'text/csv');
       return;
@@ -617,6 +634,26 @@
       moveTask(id, zone.dataset.quadrant);
     });
   });
+  document.querySelectorAll('.task-list').forEach(list => {
+    list.addEventListener('dragover', event => {
+      if (event.dataTransfer.types.includes('text/plain')) event.preventDefault();
+    });
+    list.addEventListener('drop', event => {
+      const id = event.dataTransfer.getData('text/plain');
+      const task = tasks.find(item => item.id === id);
+      if (!task) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const cards = [...list.querySelectorAll('.task')].filter(card => card.dataset.id !== id);
+      const target = cards.find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
+      const targetTask = target && tasks.find(item => item.id === target.dataset.id);
+      task.quadrant = list.id.replace('list-', '');
+      task.order = targetTask ? targetTask.order - 1 : Date.now();
+      touchTask(task);
+      save();
+      render();
+    });
+  });
   const addForm = document.querySelector('.add-row');
   addForm.addEventListener('submit', e => {
     e.preventDefault();
@@ -660,7 +697,9 @@
   document.getElementById('import-btn').addEventListener('click', () => document.getElementById('import-input').click());
   document.getElementById('import-input').addEventListener('change', async e => {
     try {
-      const imported = unwrapTasks(await e.target.files[0].text());
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const imported = unwrapTasks(await file.text());
       if (!imported) throw new Error('JSON must contain an array or task object');
       const previous = tasks;
       const importedTasks = [];
@@ -670,6 +709,7 @@
         usedIds.add(task.id);
         importedTasks.push(task);
       });
+      if (!window.confirm('This will replace ' + previous.length + ' existing task' + (previous.length === 1 ? '' : 's') + ' with ' + importedTasks.length + ' imported task' + (importedTasks.length === 1 ? '' : 's') + '. Continue?')) return;
       const importedIds = new Set(importedTasks.map(task => task.id));
       deletedIds = new Set(previous.map(task => task.id));
       deletedAt = new Map(previous.map(task => [task.id, Date.now()]));
@@ -717,7 +757,7 @@
     settings.templates.push({ text, priority: document.getElementById('task-priority').value, tags: document.getElementById('new-task-tags').value });
     saveSettings(); showToast('Template saved.');
   });
-  document.getElementById('theme-toggle').addEventListener('click', () => { settings.light = !settings.light; document.body.classList.toggle('light', settings.light); document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme'; saveSettings(); });
+  document.getElementById('theme-toggle').addEventListener('click', () => { settings.light = !settings.light; document.body.classList.toggle('light', settings.light); updateThemeButton(); saveSettings(); });
   document.getElementById('review-toggle').addEventListener('click', () => {
     const panel = document.getElementById('review-panel'); panel.classList.toggle('visible'); renderReview();
   });
@@ -728,6 +768,13 @@
   document.querySelector('.add-more-toggle').addEventListener('click', e => {
     const open = document.querySelector('.add-more').classList.toggle('open');
     e.currentTarget.setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', event => {
+    const details = document.querySelector('.more-menu');
+    if (details.open && !details.contains(event.target)) details.open = false;
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') document.querySelector('.more-menu').open = false;
   });
   window.addEventListener('storage', e => {
     if (e.key === STORAGE_KEY) {
@@ -742,7 +789,7 @@
     if (e.key === SETTINGS_KEY) {
       settings = loadSettings();
       document.body.classList.toggle('light', Boolean(settings.light));
-      document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme';
+      updateThemeButton();
     }
   });
   document.addEventListener('focusout', event => {
@@ -774,14 +821,14 @@
     if (!hasExplicitTheme) {
       settings.light = event.matches;
       document.body.classList.toggle('light', Boolean(settings.light));
-      document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme';
+      updateThemeButton();
     }
   });
   promoteDueTasks();
   if (typeof settings.light !== 'boolean') settings.light = window.matchMedia('(prefers-color-scheme: light)').matches;
   document.body.classList.toggle('light', Boolean(settings.light));
-  document.getElementById('theme-toggle').textContent = settings.light ? 'Dark theme' : 'Light theme';
+  updateThemeButton();
   document.getElementById('archive-toggle').textContent = settings.showArchived ? 'Active tasks' : 'Archived';
   document.getElementById('archive-toggle').setAttribute('aria-pressed', String(Boolean(settings.showArchived)));
-  timerInterval = setInterval(updateTimerDisplays, 1000);
   render();
+  if (!tasks.length) document.getElementById('new-task-text').focus();

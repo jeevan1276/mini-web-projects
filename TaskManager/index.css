@@ -283,10 +283,10 @@ h1 span {
   transition: background var(--ease), border-color var(--ease);
 }
 
-#q-do { border-left: 3px solid var(--do); background: color-mix(in srgb, var(--do) 3%, var(--panel)); }
-#q-schedule { border-left: 3px solid var(--schedule); background: color-mix(in srgb, var(--schedule) 3%, var(--panel)); }
-#q-delegate { border-left: 3px solid var(--delegate); background: color-mix(in srgb, var(--delegate) 3%, var(--panel)); }
-#q-delete { border-left: 3px solid var(--delete); background: color-mix(in srgb, var(--delete) 3%, var(--panel)); }
+#q-do { border-left: 3px solid var(--do); background: var(--panel); background: color-mix(in srgb, var(--do) 3%, var(--panel)); }
+#q-schedule { border-left: 3px solid var(--schedule); background: var(--panel); background: color-mix(in srgb, var(--schedule) 3%, var(--panel)); }
+#q-delegate { border-left: 3px solid var(--delegate); background: var(--panel); background: color-mix(in srgb, var(--delegate) 3%, var(--panel)); }
+#q-delete { border-left: 3px solid var(--delete); background: var(--panel); background: color-mix(in srgb, var(--delete) 3%, var(--panel)); }
 
 .quadrant.drag-over {
   background: var(--panel-hover);
@@ -702,7 +702,7 @@ footer {
     min-height: 600px;
   }
 
-  .add-more-toggle { display: none; }
-  .add-more { display: flex; order: 3; }
+  .add-more-toggle { display: block; }
+  .add-more { order: 4; }
   .add-row > input[type="text"] { flex: 1 1 120px; }
 }
