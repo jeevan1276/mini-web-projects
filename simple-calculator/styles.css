@@ -13,6 +13,7 @@ body{
     width: 300px;
 }
 #display {
+    box-sizing: border-box;
     width: 100%;
     height: 50px;
     text-align: right;
